@@ -88,21 +88,41 @@ vectoramp --dataset ds_123 datasets ingest-files ./docs --source-id src_123
 
 ## Interactive mode
 
-Run `vectoramp` with no subcommand to enter a slash-command REPL inspired by Claude Code/Codex-style CLIs:
+Run `vectoramp` with no subcommand to enter a polished slash-command REPL inspired by Claude Code/Codex-style CLIs. The session opens with a `[ VectorAmp ]` banner, current working directory, and active dataset context.
 
 ```text
-vectoramp> /help
-vectoramp> /use ds_123
-vectoramp> /search how does SABLE work?
-vectoramp> /add-texts SABLE is VectorAmp's billion-scale index architecture.
-vectoramp> /ingest-files ./docs
-vectoramp> /ask summarize this dataset
-vectoramp> /sources web https://docs.example.com
-vectoramp> /config
-vectoramp> /exit
+╭────────────────────────────────────────╮
+│              [ VectorAmp ]             │
+╰────────────────────────────────────────╯
+cwd /work/product-docs
+ctx active dataset: ds_123
+
+────────────────────────────────────────────────────────
+vectoramp › /se
+ /search     Semantic search in the active dataset
 ```
 
-Plain text without a slash is treated as `/ask` against the active dataset.
+Interactive niceties:
+
+- Type `/` to show a filtered command palette with commands and descriptions.
+- Use ↑/↓ to move the highlighted command.
+- Press Tab to complete the highlighted slash command.
+- Run `/use` to fetch your datasets and choose from a filterable arrow-key picker.
+- Plain text without a slash is treated as `/ask` against the active dataset.
+
+Common commands:
+
+```text
+/help
+/use
+/search how does SABLE work?
+/add-texts SABLE is VectorAmp's billion-scale index architecture.
+/ingest-files ./docs
+/ask summarize this dataset
+/sources web https://docs.example.com
+/config
+/exit
+```
 
 ## UX notes
 

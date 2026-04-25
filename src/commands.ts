@@ -1,5 +1,3 @@
-import { createInterface } from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
 import chalk from 'chalk';
 import ora from 'ora';
 import cliProgress from 'cli-progress';
@@ -7,6 +5,7 @@ import { Command } from 'commander';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
 import { collectFiles, VectorAmpClient } from './client.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
+import { commandHelp, extractDatasets, InteractiveTerminal, renderBanner } from './interactive-ui.js';
 
 export interface CliIO { stdout?: NodeJS.WriteStream; stderr?: NodeJS.WriteStream; fetch?: typeof fetch }
 
@@ -113,27 +112,35 @@ async function ingestFiles(ctx: Awaited<ReturnType<typeof context>>, root: strin
 }
 
 export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
-  const rl = createInterface({ input, output, prompt: chalk.cyan('vectoramp> ') });
+  const terminal = new InteractiveTerminal();
   let ctx = await context(initial, io);
-  console.log(chalk.bold('VectorAmp interactive mode. Type /help for commands, /exit to quit.'));
-  rl.prompt();
-  for await (const line of rl) {
-    const [cmd, ...args] = line.trim().split(/\s+/);
+  console.log(renderBanner({ cwd: process.cwd(), datasetId: ctx.datasetId }));
+
+  while (true) {
+    const line = await terminal.readLine('vectoramp');
+    if (line === undefined) break;
+    const trimmed = line.trim();
+    const [cmd, ...args] = trimmed.split(/\s+/);
     try {
-      if (!cmd || cmd === '') { rl.prompt(); continue; }
+      if (!cmd || cmd === '') continue;
       if (cmd === '/exit' || cmd === '/quit') break;
-      if (cmd === '/help') console.log('/use <dataset> | /search <query> | /add-texts <text> | /ingest-files <path> | /ask <q> | /sources <web|s3|gdrive> <uri> | /config | /exit');
-      else if (cmd === '/use') { await writeConfig({ ...(await readConfig()), datasetId: args[0] }); ctx = await context({ ...initial, dataset: args[0] }, io); console.log(chalk.green(`Using ${args[0]}`)); }
+      if (cmd === '/help') console.log(commandHelp());
+      else if (cmd === '/use') {
+        const response = await spin('Fetching datasets', () => ctx.client.listDatasets({ limit: 50, offset: 0 }));
+        const choice = await terminal.pickDataset(extractDatasets(response), args.join(' '));
+        if (!choice) { console.log(chalk.yellow('No dataset selected.')); continue; }
+        await writeConfig({ ...(await readConfig()), datasetId: choice.id });
+        ctx = await context({ ...initial, dataset: choice.id }, io);
+        console.log(chalk.green(`Using ${choice.name ? `${choice.name} (${choice.id})` : choice.id}`));
+      }
       else if (cmd === '/config') printJson(await readConfig());
       else if (cmd === '/search') { await requireDataset(ctx); show(ctx, await ctx.client.search(ctx.datasetId!, { queryText: args.join(' ') })); }
       else if (cmd === '/add-texts') { await requireDataset(ctx); show(ctx, await ctx.client.addTexts(ctx.datasetId!, [args.join(' ')])); }
       else if (cmd === '/ingest-files') await ingestFiles(ctx, args[0], {});
       else if (cmd === '/ask') await ask(ctx, args.join(' '), true);
       else if (cmd === '/sources') show(ctx, await ctx.client.createSource({ sourceType: args[0], uri: args[1] }));
-      else if (!cmd.startsWith('/')) await ask(ctx, line.trim(), true);
+      else if (!cmd.startsWith('/')) await ask(ctx, trimmed, true);
       else console.log(chalk.red(`Unknown command ${cmd}. Try /help.`));
     } catch (error) { console.error(chalk.red((error as Error).message)); }
-    rl.prompt();
   }
-  rl.close();
 }
