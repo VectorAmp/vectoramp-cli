@@ -93,13 +93,14 @@ Run `vectoramp` with no subcommand to enter a polished slash-command REPL inspir
 ```text
 ╭────────────────────────────────────────╮
 │              [ VectorAmp ]             │
+│                                        │
+│ cwd ~/work/product-docs                │
+│ ctx active dataset: ds_123             │
 ╰────────────────────────────────────────╯
-cwd ~/work/product-docs
-ctx active dataset: ds_123
 
-
-vectoramp › /se
-────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────
+VectorAmp › /se
+────────────────────────────────────────────────────────────
  /search     Semantic search in the active dataset
 ```
 
@@ -109,14 +110,14 @@ Interactive niceties:
 - Use ↑/↓ to move the highlighted command.
 - Press Tab or Enter to complete the highlighted slash command.
 - Once a full command plus trailing space is typed (for example `/ask `), the command palette hides so arguments can be entered cleanly.
-- Run `/use` to fetch your datasets and choose from a filterable picker with UUID and name columns; Enter or Tab selects the highlighted dataset.
+- Run `/datasets` to fetch your datasets and choose from a filterable picker with UUID and name columns; Enter or Tab selects the highlighted dataset. `/use` remains as a backwards-compatible alias.
 - Plain text without a slash is treated as `/ask` against the active dataset.
 
 Common commands:
 
 ```text
 /help
-/use
+/datasets
 /search how does SABLE work?
 /add-texts SABLE is VectorAmp's billion-scale index architecture.
 /ingest-files ./docs
@@ -128,7 +129,7 @@ Common commands:
 
 ## UX notes
 
-Network calls use spinners. Local file ingestion shows a progress bar while files are collected and a spinner while uploading. `ask --stream` uses Server-Sent Events from `/intelligence/query` when available, with fallback to the non-streaming ask endpoint.
+Network calls use spinners. Local file ingestion shows a progress bar while files are collected and a spinner while uploading. Interactive `/ask` and one-off `ask --stream` show an immediate waiting indicator until the first stream chunk arrives, then clear it before printing the answer. Streaming uses Server-Sent Events from `/intelligence/query` when available, with fallback to the non-streaming ask endpoint.
 
 ## Development
 
