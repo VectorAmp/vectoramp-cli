@@ -10,7 +10,7 @@ export interface VectorAmpConfig {
 }
 
 export const DEFAULT_BASE_URL = 'https://api.vectoramp.com';
-export const DEFAULT_API_PREFIX = '/api/v1';
+export const DEFAULT_API_PREFIX = '';
 
 export function configPath(): string {
   return process.env.VECTORAMP_CONFIG ?? join(homedir(), '.config', 'vectoramp', 'config.json');
