@@ -1,93 +1,118 @@
-# CLI
+# VectorAmp CLI
 
+Official command-line interface for VectorAmp datasets, ingestion, semantic search, and Intelligence.
 
+- Binary: `vectoramp` with short alias `va`
+- Node.js 18+
+- Auth via `VECTORAMP_API_KEY` or local config
+- Default API: `https://api.vectoramp.com/api/v1`
+- Dataset creation is SABLE-only; the CLI always sends `index_type: sable`
 
-## Getting started
+## Install
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/VectorAmp/SDK/CLI.git
-git branch -M main
-git push -uf origin main
+```bash
+npm install -g @vectoramp/cli
 ```
 
-## Integrate with your tools
+One-command installer:
 
-* [Set up project integrations](https://gitlab.com/VectorAmp/SDK/CLI/-/settings/integrations)
+```bash
+curl -fsSL https://gitlab.com/VectorAmp/SDK/CLI/-/raw/main/scripts/install.sh | bash
+```
 
-## Collaborate with your team
+From source:
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+```bash
+git clone git@gitlab.com:VectorAmp/SDK/CLI.git
+cd CLI
+npm ci
+npm run build
+npm link
+```
 
-## Test and Deploy
+## Configure
 
-Use the built-in continuous integration in GitLab.
+```bash
+export VECTORAMP_API_KEY=va_live_...
+export VECTORAMP_BASE_URL=https://api.vectoramp.com # optional
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+vectoramp config set --api-key va_live_...
+vectoramp config set --base-url https://api.vectoramp.com
+vectoramp config use ds_123
+vectoramp config show
+```
 
-***
+Config is stored at `~/.config/vectoramp/config.json`. `VECTORAMP_API_KEY`, `VECTORAMP_BASE_URL`, and `VECTORAMP_API_PREFIX` override local config.
 
-# Editing this README
+## One-off commands
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```bash
+vectoramp datasets list
+vectoramp datasets create docs --dimension 1536 --metadata '{"team":"support"}'
+vectoramp datasets get ds_123
+vectoramp datasets delete ds_123 --yes
 
-## Suggestions for a good README
+vectoramp --dataset ds_123 datasets search "refund policy" --top-k 5
+vectoramp --dataset ds_123 datasets add-texts "VectorAmp uses SABLE for vector search."
+vectoramp --dataset ds_123 datasets add-texts --file ./intro.md
+vectoramp --dataset ds_123 datasets ask "What is in this dataset?" --stream
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+vectoramp ask "Summarize my active dataset" --dataset ds_123 --stream
+```
 
-## Name
-Choose a self-explaining name for your project.
+## Ingestion
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Create reusable sources:
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```bash
+vectoramp sources web https://docs.example.com --name docs-web
+vectoramp sources s3 s3://my-bucket/docs --config '{"recursive":true}'
+vectoramp sources gdrive google-folder-id
+vectoramp sources file_upload --name "Local upload"
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Start ingestion from a source descriptor:
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+vectoramp --dataset ds_123 sources ingest web https://docs.example.com
+vectoramp --dataset ds_123 sources ingest s3 s3://my-bucket/docs --config '{"recursive":true}'
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Local file ingestion reads common text formats (`.md`, `.txt`, `.json`, `.csv`, `.html`, `.yaml`, etc.), creates a minimal `file_upload` source automatically when no source id is supplied, then uploads file contents to the filesystem ingestion endpoint:
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+vectoramp --dataset ds_123 datasets ingest-files ./docs
+vectoramp --dataset ds_123 datasets ingest-files ./docs --extensions md,txt --source-name "Product docs"
+vectoramp --dataset ds_123 datasets ingest-files ./docs --source-id src_123
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Interactive mode
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Run `vectoramp` with no subcommand to enter a slash-command REPL inspired by Claude Code/Codex-style CLIs:
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```text
+vectoramp> /help
+vectoramp> /use ds_123
+vectoramp> /search how does SABLE work?
+vectoramp> /add-texts SABLE is VectorAmp's billion-scale index architecture.
+vectoramp> /ingest-files ./docs
+vectoramp> /ask summarize this dataset
+vectoramp> /sources web https://docs.example.com
+vectoramp> /config
+vectoramp> /exit
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Plain text without a slash is treated as `/ask` against the active dataset.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## UX notes
 
-## License
-For open source projects, say how it is licensed.
+Network calls use spinners. Local file ingestion shows a progress bar while files are collected and a spinner while uploading. `ask --stream` uses Server-Sent Events when the API supports `/intelligence/query/stream`, with fallback to the non-streaming ask endpoint.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## Development
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
