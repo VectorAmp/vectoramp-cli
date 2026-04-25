@@ -87,19 +87,35 @@ async function spin<T>(text: string, fn: () => Promise<T>): Promise<T> { const s
 function show(ctx: { json: boolean }, value: unknown) { if (ctx.json) printJson(value); else printJson(value); }
 
 async function ask(ctx: Awaited<ReturnType<typeof context>>, question: string, stream: boolean) {
-  const body = compact({ question, datasetId: ctx.datasetId });
+  const body = compact({ query: question, datasetId: ctx.datasetId, includeSources: true });
   if (stream) {
     try {
       for await (const event of ctx.client.askStream(body)) {
         if (event.event === 'done' || event.data === '[DONE]') break;
-        const data: any = event.data;
-        process.stdout.write(typeof data === 'string' ? data : (data?.delta ?? data?.answer ?? JSON.stringify(data)));
+        const chunk = renderAskStreamChunk(event.data);
+        if (chunk) process.stdout.write(chunk);
       }
       process.stdout.write('\n'); return;
     } catch (error) { console.error(chalk.yellow(`Streaming unavailable, falling back: ${(error as Error).message}`)); }
   }
-  await spin('Asking VectorAmp', async () => show(ctx, await ctx.client.ask(body)));
+  await spin('Asking VectorAmp', async () => showAsk(ctx, await ctx.client.ask({ ...body, stream: false })));
 }
+
+function showAsk(ctx: { json: boolean }, value: unknown) {
+  if (ctx.json) { printJson(value); return; }
+  if (value && typeof value === 'object' && typeof (value as any).answer === 'string') console.log((value as any).answer);
+  else show(ctx, value);
+}
+
+function renderAskStreamChunk(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (!data || typeof data !== 'object') return '';
+  const chunk: any = data;
+  if (chunk.chunk_type === 'done' || chunk.chunkType === 'done') return '';
+  if (chunk.chunk_type === 'error' || chunk.chunkType === 'error') return chunk.content ? `\n${chunk.content}` : '';
+  return chunk.content ?? chunk.delta ?? chunk.answer ?? '';
+}
+
 
 async function ingestFiles(ctx: Awaited<ReturnType<typeof context>>, root: string, opts: any) {
   await requireDataset(ctx);

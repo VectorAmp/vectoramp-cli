@@ -30,3 +30,16 @@ it('stores default dataset via config use', async () => {
   await buildProgram({}).parseAsync(['node', 'vectoramp', 'config', 'use', 'ds_123']);
   expect(logs.join('\n')).toContain('ds_123');
 });
+
+
+it('runs one-off ask with public intelligence payload', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ answer: 'dogs found' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', 'Do I have any pictures of dogs?']);
+  expect(calls[0].url).toBe('https://api.test/intelligence/query');
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'Do I have any pictures of dogs?', dataset_id: 'ds_123', include_sources: true, stream: false });
+  expect(logs.join('\n')).toContain('dogs found');
+});

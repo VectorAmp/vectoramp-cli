@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { completeSlashCommand, extractDatasets, filterCommands, filterDatasets, renderBanner, SLASH_COMMANDS } from '../src/interactive-ui.js';
+import { completeSlashCommand, extractDatasets, filterCommands, filterDatasets, formatCwd, renderBanner, SLASH_COMMANDS } from '../src/interactive-ui.js';
 
 describe('interactive command catalog', () => {
   it('filters slash commands by typed prefix', () => {
     expect(filterCommands('/se').map((command) => command.name)).toEqual(['/search']);
+    expect(filterCommands('/use ')).toEqual([]);
+    expect(filterCommands('/ask dogs')).toEqual([]);
     expect(filterCommands('plain text')).toEqual([]);
   });
 
@@ -47,5 +49,11 @@ describe('interactive banner', () => {
     expect(banner).toContain('[ VectorAmp ]');
     expect(banner).toContain('/tmp/project');
     expect(banner).toContain('ds_123');
+  });
+
+  it('shortens home-relative cwd paths', () => {
+    expect(formatCwd('/home/jonathan/repos/app', '/home/jonathan')).toBe('~/repos/app');
+    expect(formatCwd('/home/jonathan', '/home/jonathan')).toBe('~');
+    expect(formatCwd('/srv/app', '/home/jonathan')).toBe('/srv/app');
   });
 });

@@ -38,7 +38,10 @@ export class VectorAmpClient {
     const headers = new Headers({ Accept: 'text/event-stream', 'Content-Type': 'application/json' });
     if (this.config.apiKey) headers.set('X-API-Key', this.config.apiKey);
     const res = await this.fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!res.ok) throw new VectorAmpApiError(`VectorAmp stream failed: ${res.status} ${res.statusText}`, res.status, await parseBody(res));
+    if (!res.ok) {
+      const body = await parseBody(res);
+      throw new VectorAmpApiError(errorMessage(body) ?? `VectorAmp stream failed: ${res.status} ${res.statusText}`, res.status, body);
+    }
     if (!res.body) return;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -70,7 +73,7 @@ export class VectorAmpClient {
   ingestSource(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/sources`, { body: toSnakeCasePayload(body) }); }
   ingestFiles(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/filesystem`, { body: toSnakeCasePayload(body) }); }
   ask(body: Record<string, unknown>) { return this.request<unknown>('POST', '/intelligence/query', { body: toSnakeCasePayload(body) }); }
-  askStream(body: Record<string, unknown>) { return this.stream('/intelligence/query/stream', toSnakeCasePayload({ ...body, stream: true })); }
+  askStream(body: Record<string, unknown>) { return this.stream('/intelligence/query', toSnakeCasePayload({ ...body, stream: true })); }
 
   private url(path: string, query?: Record<string, unknown>): string {
     const url = new URL(joinUrl(this.config.baseUrl!, this.config.apiPrefix!, path));
@@ -106,7 +109,35 @@ export async function collectFiles(root: string, options: { extensions?: string[
 
 function dirnameOf(path: string): string { return path.slice(0, Math.max(0, path.lastIndexOf('/'))) || process.cwd(); }
 async function parseBody(res: Response): Promise<unknown> { const text = await res.text(); if (!text) return undefined; try { return JSON.parse(text); } catch { return text; } }
-function errorMessage(body: unknown): string | undefined { return body && typeof body === 'object' ? String((body as any).message ?? (body as any).error ?? (body as any).detail ?? '') || undefined : undefined; }
+function errorMessage(body: unknown): string | undefined {
+  if (body === undefined || body === null || body === '') return undefined;
+  if (typeof body === 'string') return body;
+  if (Array.isArray(body)) return body.map(formatErrorValue).filter(Boolean).join('; ') || undefined;
+  if (typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    for (const key of ['message', 'error', 'detail', 'title']) {
+      const formatted = formatErrorValue(record[key]);
+      if (formatted) return formatted;
+    }
+    return formatErrorValue(record);
+  }
+  return String(body);
+}
+function formatErrorValue(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map(formatErrorValue).filter(Boolean).join('; ') || undefined;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const msg = formatErrorValue(record.msg ?? record.message ?? record.error);
+    const loc = Array.isArray(record.loc) ? record.loc.join('.') : formatErrorValue(record.loc);
+    if (msg && loc) return `${loc}: ${msg}`;
+    if (msg) return msg;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+  return String(value);
+}
 function parseSse(chunk: string): StreamEvent | undefined {
   if (!chunk.trim()) return undefined;
   const data: string[] = []; const event: StreamEvent = {};

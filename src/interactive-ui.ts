@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline/promises';
 import { emitKeypressEvents } from 'node:readline';
 import { stdin as defaultInput, stdout as defaultOutput } from 'node:process';
+import { homedir } from 'node:os';
 import chalk from 'chalk';
 
 export interface SlashCommand {
@@ -34,6 +35,7 @@ export function commandHelp(): string {
 
 export function filterCommands(input: string, commands: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   if (!input.startsWith('/')) return [];
+  if (/\s/.test(input)) return [];
   const token = input.split(/\s+/, 1)[0].toLowerCase();
   return commands.filter((command) => command.name.toLowerCase().startsWith(token));
 }
@@ -73,8 +75,13 @@ export function filterDatasets(query: string, datasets: DatasetChoice[]): Datase
   return datasets.filter((dataset) => [dataset.id, dataset.name, dataset.description].filter(Boolean).some((value) => value!.toLowerCase().includes(q)));
 }
 
+export function formatCwd(cwd: string, home = homedir()): string {
+  if (!home || cwd === home) return '~';
+  return cwd.startsWith(`${home}/`) ? `~/${cwd.slice(home.length + 1)}` : cwd;
+}
+
 export function renderBanner(options: { cwd?: string; datasetId?: string } = {}): string {
-  const cwd = options.cwd ?? process.cwd();
+  const cwd = formatCwd(options.cwd ?? process.cwd());
   const dataset = options.datasetId ? `active dataset: ${options.datasetId}` : 'no active dataset';
   return [
     chalk.cyan('╭────────────────────────────────────────╮'),
@@ -132,9 +139,9 @@ export class InteractiveTerminal {
       const palette = filterCommands(buffer).slice(0, 8);
       if (selected >= palette.length) selected = Math.max(0, palette.length - 1);
       this.clearRender();
-      this.output.write(`${chalk.dim('─'.repeat(56))}\n`);
-      this.output.write(`${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}`);
-      let lines = 2;
+      this.output.write(`\n${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}\n`);
+      this.output.write(`${chalk.dim('─'.repeat(56))}`);
+      let lines = 3;
       if (palette.length) {
         const width = Math.max(...palette.map((command) => command.name.length), 10);
         this.output.write('\n');
@@ -153,6 +160,12 @@ export class InteractiveTerminal {
       const onKeypress = (_chunk: string, key: any) => {
         const palette = filterCommands(buffer).slice(0, 8);
         if (key?.ctrl && key.name === 'c') { cleanup(); this.output.write('\n'); resolve(undefined); return; }
+        if (key?.name === 'return' && palette.length) {
+          const completion = palette[selected]?.name ? `${palette[selected].name} ` : completeSlashCommand(buffer);
+          if (completion) buffer = completion;
+          render();
+          return;
+        }
         if (key?.name === 'return') { cleanup(); this.clearRender(); this.output.write(`${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}\n`); resolve(buffer); return; }
         if (key?.name === 'backspace') { buffer = buffer.slice(0, -1); selected = 0; render(); return; }
         if (key?.name === 'up' && palette.length) { selected = (selected - 1 + palette.length) % palette.length; render(); return; }
@@ -184,6 +197,8 @@ export class InteractiveTerminal {
       if (!matches.length) { this.output.write(chalk.yellow(' no matching datasets')); lines += 1; }
       else {
         const width = Math.max(...matches.map((dataset) => dataset.id.length), 10);
+        this.output.write(`${chalk.dim(' uuid'.padEnd(width + 1))}  ${chalk.dim('name')}\n`);
+        lines += 1;
         for (let i = 0; i < matches.length; i += 1) {
           const dataset = matches[i];
           const row = `${dataset.id.padEnd(width)}  ${chalk.dim(dataset.name ?? '')}`;
@@ -201,6 +216,7 @@ export class InteractiveTerminal {
         if (key?.ctrl && key.name === 'c') { cleanup(); this.output.write('\n'); resolve(undefined); return; }
         if (key?.name === 'escape') { cleanup(); this.clearRender(); resolve(undefined); return; }
         if (key?.name === 'return') { cleanup(); this.clearRender(); resolve(matches[selected]); return; }
+        if (key?.name === 'tab') { cleanup(); this.clearRender(); resolve(matches[selected]); return; }
         if (key?.name === 'backspace') { query = query.slice(0, -1); selected = 0; render(); return; }
         if (key?.name === 'up' && matches.length) { selected = (selected - 1 + matches.length) % matches.length; render(); return; }
         if (key?.name === 'down' && matches.length) { selected = (selected + 1) % matches.length; render(); return; }
