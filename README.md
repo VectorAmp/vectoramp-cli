@@ -5,7 +5,7 @@ Official command-line interface for VectorAmp datasets, ingestion, semantic sear
 - Binary: `vectoramp` with short alias `va`
 - Node.js 18+
 - Auth via `VECTORAMP_API_KEY` or local config
-- Default API: `https://api.vectoramp.com/api/v1`
+- Default API: `https://api.vectoramp.com`
 - Dataset creation is SABLE-only; the CLI always sends `index_type: sable`
 
 ## Install
