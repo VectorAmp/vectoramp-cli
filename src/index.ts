@@ -1,9 +1,16 @@
+import { realpathSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { buildProgram } from './commands.js';
 
 export { buildProgram } from './commands.js';
 export { VectorAmpClient } from './client.js';
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isEntrypoint(): boolean {
+  if (!process.argv[1]) return false;
+  return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+}
+
+if (isEntrypoint()) {
   buildProgram().parseAsync(process.argv).catch((error) => {
     if (error?.code === 'commander.helpDisplayed' || error?.code === 'commander.version') {
       process.exitCode = 0;
