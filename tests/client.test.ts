@@ -27,4 +27,19 @@ describe('VectorAmpClient', () => {
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
     await expect(client.listDatasets()).rejects.toThrow('nope');
   });
+
+  it('formats structured api validation errors without object stringification', async () => {
+    const fetch = (async () => new Response(JSON.stringify({ detail: [{ loc: ['body', 'query'], msg: 'Field required' }] }), { status: 422, statusText: 'Unprocessable Entity' })) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await expect(client.ask({ question: 'dogs' })).rejects.toThrow('body.query: Field required');
+  });
+
+  it('uses the public intelligence query payload and stream endpoint', async () => {
+    const calls: any[] = [];
+    const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ answer: 'ok' }); }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await client.ask({ query: 'dogs', datasetId: 'ds_1', includeSources: true, stream: false });
+    expect(calls[0].url).toBe('https://api.example.com/intelligence/query');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ query: 'dogs', dataset_id: 'ds_1', include_sources: true, stream: false });
+  });
 });

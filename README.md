@@ -94,11 +94,12 @@ Run `vectoramp` with no subcommand to enter a polished slash-command REPL inspir
 ╭────────────────────────────────────────╮
 │              [ VectorAmp ]             │
 ╰────────────────────────────────────────╯
-cwd /work/product-docs
+cwd ~/work/product-docs
 ctx active dataset: ds_123
 
-────────────────────────────────────────────────────────
+
 vectoramp › /se
+────────────────────────────────────────────────────────
  /search     Semantic search in the active dataset
 ```
 
@@ -106,8 +107,9 @@ Interactive niceties:
 
 - Type `/` to show a filtered command palette with commands and descriptions.
 - Use ↑/↓ to move the highlighted command.
-- Press Tab to complete the highlighted slash command.
-- Run `/use` to fetch your datasets and choose from a filterable arrow-key picker.
+- Press Tab or Enter to complete the highlighted slash command.
+- Once a full command plus trailing space is typed (for example `/ask `), the command palette hides so arguments can be entered cleanly.
+- Run `/use` to fetch your datasets and choose from a filterable picker with UUID and name columns; Enter or Tab selects the highlighted dataset.
 - Plain text without a slash is treated as `/ask` against the active dataset.
 
 Common commands:
@@ -126,7 +128,7 @@ Common commands:
 
 ## UX notes
 
-Network calls use spinners. Local file ingestion shows a progress bar while files are collected and a spinner while uploading. `ask --stream` uses Server-Sent Events when the API supports `/intelligence/query/stream`, with fallback to the non-streaming ask endpoint.
+Network calls use spinners. Local file ingestion shows a progress bar while files are collected and a spinner while uploading. `ask --stream` uses Server-Sent Events from `/intelligence/query` when available, with fallback to the non-streaming ask endpoint.
 
 ## Development
 
