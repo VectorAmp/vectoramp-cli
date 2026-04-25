@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
 import { collectFiles, VectorAmpClient } from './client.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
-import { commandHelp, extractDatasets, InteractiveTerminal, renderBanner } from './interactive-ui.js';
+import { commandHelp, extractDatasets, InteractiveTerminal, normalizeSlashCommand, renderBanner } from './interactive-ui.js';
 
 export interface CliIO { stdout?: NodeJS.WriteStream; stderr?: NodeJS.WriteStream; fetch?: typeof fetch }
 
@@ -89,14 +89,23 @@ function show(ctx: { json: boolean }, value: unknown) { if (ctx.json) printJson(
 async function ask(ctx: Awaited<ReturnType<typeof context>>, question: string, stream: boolean) {
   const body = compact({ query: question, datasetId: ctx.datasetId, includeSources: true });
   if (stream) {
+    const spinner = ora('Asking VectorAmp').start();
+    let wroteChunk = false;
     try {
       for await (const event of ctx.client.askStream(body)) {
         if (event.event === 'done' || event.data === '[DONE]') break;
         const chunk = renderAskStreamChunk(event.data);
-        if (chunk) process.stdout.write(chunk);
+        if (!chunk) continue;
+        if (!wroteChunk) { spinner.stop(); wroteChunk = true; }
+        process.stdout.write(chunk);
       }
+      if (!wroteChunk) spinner.stop();
       process.stdout.write('\n'); return;
-    } catch (error) { console.error(chalk.yellow(`Streaming unavailable, falling back: ${(error as Error).message}`)); }
+    } catch (error) {
+      if (wroteChunk) process.stdout.write('\n');
+      else spinner.stop();
+      console.error(chalk.yellow(`Streaming unavailable, falling back: ${(error as Error).message}`));
+    }
   }
   await spin('Asking VectorAmp', async () => showAsk(ctx, await ctx.client.ask({ ...body, stream: false })));
 }
@@ -133,15 +142,16 @@ export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
   console.log(renderBanner({ cwd: process.cwd(), datasetId: ctx.datasetId }));
 
   while (true) {
-    const line = await terminal.readLine('vectoramp');
+    const line = await terminal.readLine('VectorAmp');
     if (line === undefined) break;
     const trimmed = line.trim();
-    const [cmd, ...args] = trimmed.split(/\s+/);
+    const [rawCmd, ...args] = trimmed.split(/\s+/);
+    const cmd = normalizeSlashCommand(rawCmd);
     try {
       if (!cmd || cmd === '') continue;
       if (cmd === '/exit' || cmd === '/quit') break;
       if (cmd === '/help') console.log(commandHelp());
-      else if (cmd === '/use') {
+      else if (cmd === '/datasets') {
         const response = await spin('Fetching datasets', () => ctx.client.listDatasets({ limit: 50, offset: 0 }));
         const choice = await terminal.pickDataset(extractDatasets(response), args.join(' '));
         if (!choice) { console.log(chalk.yellow('No dataset selected.')); continue; }

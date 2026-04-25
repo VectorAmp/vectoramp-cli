@@ -8,6 +8,7 @@ export interface SlashCommand {
   name: string;
   description: string;
   usage: string;
+  aliases?: string[];
 }
 
 export interface DatasetChoice {
@@ -18,7 +19,7 @@ export interface DatasetChoice {
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/help', usage: '/help', description: 'Show interactive commands' },
-  { name: '/use', usage: '/use', description: 'Pick an active dataset from your account' },
+  { name: '/datasets', aliases: ['/use'], usage: '/datasets', description: 'Pick an active dataset from your account' },
   { name: '/search', usage: '/search <query>', description: 'Semantic search in the active dataset' },
   { name: '/add-texts', usage: '/add-texts <text>', description: 'Add inline text to the active dataset' },
   { name: '/ingest-files', usage: '/ingest-files <path>', description: 'Upload local text files into the active dataset' },
@@ -29,24 +30,31 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 ];
 
 export function commandHelp(): string {
-  const width = Math.max(...SLASH_COMMANDS.map((command) => command.usage.length));
-  return SLASH_COMMANDS.map((command) => `${command.usage.padEnd(width)}  ${command.description}`).join('\n');
+  const usages = SLASH_COMMANDS.map(commandUsage);
+  const width = Math.max(...usages.map((usage) => usage.length));
+  return SLASH_COMMANDS.map((command, index) => `${usages[index].padEnd(width)}  ${command.description}`).join('\n');
 }
 
 export function filterCommands(input: string, commands: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   if (!input.startsWith('/')) return [];
   if (/\s/.test(input)) return [];
   const token = input.split(/\s+/, 1)[0].toLowerCase();
-  return commands.filter((command) => command.name.toLowerCase().startsWith(token));
+  return commands.filter((command) => commandTokens(command).some((name) => name.toLowerCase().startsWith(token)));
 }
 
 export function completeSlashCommand(input: string, commands: SlashCommand[] = SLASH_COMMANDS): string | undefined {
   if (!input.startsWith('/') || /\s/.test(input)) return undefined;
-  const matches = filterCommands(input, commands);
+  const token = input.toLowerCase();
+  const matches = commands.flatMap((command) => commandTokens(command).map((name) => ({ command, name }))).filter((match) => match.name.toLowerCase().startsWith(token));
   if (matches.length === 1) return `${matches[0].name} `;
   if (matches.length < 2) return undefined;
   const prefix = commonPrefix(matches.map((match) => match.name));
   return prefix.length > input.length ? prefix : undefined;
+}
+
+export function normalizeSlashCommand(command: string, commands: SlashCommand[] = SLASH_COMMANDS): string {
+  const lower = command.toLowerCase();
+  return commands.find((entry) => commandTokens(entry).some((token) => token.toLowerCase() === lower))?.name ?? command;
 }
 
 export function extractDatasets(response: unknown): DatasetChoice[] {
@@ -83,16 +91,39 @@ export function formatCwd(cwd: string, home = homedir()): string {
 export function renderBanner(options: { cwd?: string; datasetId?: string } = {}): string {
   const cwd = formatCwd(options.cwd ?? process.cwd());
   const dataset = options.datasetId ? `active dataset: ${options.datasetId}` : 'no active dataset';
+  const rows = [
+    '[ VectorAmp ]',
+    '',
+    `cwd ${cwd}`,
+    `ctx ${dataset}`,
+  ];
+  const width = Math.max(40, ...rows.map((row) => row.length + 2));
+  const blank = ' '.repeat(width);
   return [
-    chalk.cyan('╭────────────────────────────────────────╮'),
-    chalk.cyan('│') + chalk.bold('              [ VectorAmp ]             ') + chalk.cyan('│'),
-    chalk.cyan('╰────────────────────────────────────────╯'),
-    `${chalk.dim('cwd')} ${cwd}`,
-    `${chalk.dim('ctx')} ${dataset}`,
+    chalk.cyan(`╭${'─'.repeat(width)}╮`),
+    chalk.cyan('│') + chalk.bold(center(rows[0], width)) + chalk.cyan('│'),
+    chalk.cyan('│') + blank + chalk.cyan('│'),
+    chalk.cyan('│') + bannerContextLine('cwd', cwd, width) + chalk.cyan('│'),
+    chalk.cyan('│') + bannerContextLine('ctx', dataset, width) + chalk.cyan('│'),
+    chalk.cyan(`╰${'─'.repeat(width)}╯`),
     '',
     chalk.dim('Type / for commands. Plain text asks Intelligence.'),
     '',
   ].join('\n');
+}
+
+export function promptRuleWidth(columns?: number): number {
+  const terminalColumns = columns ?? defaultOutput.columns ?? 80;
+  return Math.max(56, terminalColumns - 4);
+}
+
+export function renderPromptRule(columns?: number): string {
+  return chalk.dim('─'.repeat(promptRuleWidth(columns)));
+}
+
+function bannerContextLine(label: string, value: string, width: number): string {
+  const plain = ` ${label} ${value}`;
+  return ` ${chalk.dim(label)} ${value}${' '.repeat(Math.max(0, width - plain.length))}`;
 }
 
 export class InteractiveTerminal {
@@ -109,7 +140,7 @@ export class InteractiveTerminal {
     return Boolean(this.input.isTTY && this.output.isTTY && this.input.setRawMode);
   }
 
-  async readLine(prompt = 'vectoramp'): Promise<string | undefined> {
+  async readLine(prompt = 'VectorAmp'): Promise<string | undefined> {
     if (!this.isRawCapable) {
       const rl = createInterface({ input: this.input, output: this.output, prompt: `${prompt}> ` });
       const answer = await rl.question(`${prompt}> `);
@@ -139,8 +170,9 @@ export class InteractiveTerminal {
       const palette = filterCommands(buffer).slice(0, 8);
       if (selected >= palette.length) selected = Math.max(0, palette.length - 1);
       this.clearRender();
-      this.output.write(`\n${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}\n`);
-      this.output.write(`${chalk.dim('─'.repeat(56))}`);
+      this.output.write(`\n${renderPromptRule(this.output.columns)}\n`);
+      this.output.write(`${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}\n`);
+      this.output.write(renderPromptRule(this.output.columns));
       let lines = 3;
       if (palette.length) {
         const width = Math.max(...palette.map((command) => command.name.length), 10);
@@ -191,9 +223,10 @@ export class InteractiveTerminal {
       const matches = filterDatasets(query, datasets).slice(0, 10);
       if (selected >= matches.length) selected = Math.max(0, matches.length - 1);
       this.clearRender();
-      this.output.write(`${chalk.dim('─'.repeat(56))}\n`);
-      this.output.write(`${chalk.cyan('/use')} ${chalk.dim(`${label} filter ›`)} ${query}\n`);
-      let lines = 2;
+      this.output.write(`${renderPromptRule(this.output.columns)}\n`);
+      this.output.write(`${chalk.cyan('/datasets')} ${chalk.dim(`${label} filter ›`)} ${query}\n`);
+      this.output.write(`${renderPromptRule(this.output.columns)}\n`);
+      let lines = 3;
       if (!matches.length) { this.output.write(chalk.yellow(' no matching datasets')); lines += 1; }
       else {
         const width = Math.max(...matches.map((dataset) => dataset.id.length), 10);
@@ -232,9 +265,11 @@ export class InteractiveTerminal {
     emitKeypressEvents(this.input);
     this.input.setRawMode(true);
     this.input.resume();
+    this.output.write('\x1b[?25l');
     try {
       return await new Promise<T>(executor);
     } finally {
+      this.output.write('\x1b[?25h');
       this.input.setRawMode(false);
       this.renderedLines = 0;
     }
@@ -246,6 +281,19 @@ export class InteractiveTerminal {
       if (i < this.renderedLines - 1) this.output.write('\x1b[1A');
     }
   }
+}
+
+function commandTokens(command: SlashCommand): string[] {
+  return [command.name, ...(command.aliases ?? [])];
+}
+
+function commandUsage(command: SlashCommand): string {
+  return command.aliases?.length ? `${command.usage} (${command.aliases.join(', ')})` : command.usage;
+}
+
+function center(value: string, width: number): string {
+  const left = Math.floor((width - value.length) / 2);
+  return `${' '.repeat(left)}${value}`.padEnd(width);
 }
 
 function commonPrefix(values: string[]): string {

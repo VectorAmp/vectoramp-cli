@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { completeSlashCommand, extractDatasets, filterCommands, filterDatasets, formatCwd, renderBanner, SLASH_COMMANDS } from '../src/interactive-ui.js';
+import { commandHelp, completeSlashCommand, extractDatasets, filterCommands, filterDatasets, formatCwd, normalizeSlashCommand, promptRuleWidth, renderBanner, renderPromptRule, SLASH_COMMANDS } from '../src/interactive-ui.js';
 
 describe('interactive command catalog', () => {
   it('filters slash commands by typed prefix', () => {
     expect(filterCommands('/se').map((command) => command.name)).toEqual(['/search']);
+    expect(filterCommands('/dat').map((command) => command.name)).toEqual(['/datasets']);
+    expect(filterCommands('/use').map((command) => command.name)).toEqual(['/datasets']);
     expect(filterCommands('/use ')).toEqual([]);
     expect(filterCommands('/ask dogs')).toEqual([]);
     expect(filterCommands('plain text')).toEqual([]);
@@ -11,12 +13,20 @@ describe('interactive command catalog', () => {
 
   it('completes slash commands on tab', () => {
     expect(completeSlashCommand('/sea')).toBe('/search ');
+    expect(completeSlashCommand('/dat')).toBe('/datasets ');
+    expect(completeSlashCommand('/use')).toBe('/use ');
     expect(completeSlashCommand('/s')).toBeUndefined();
     expect(completeSlashCommand('/search query')).toBeUndefined();
   });
 
   it('keeps descriptions for every command shown in the palette', () => {
     expect(SLASH_COMMANDS.every((command) => command.description.length > 0)).toBe(true);
+  });
+
+  it('normalizes legacy slash aliases for execution and documents them in help', () => {
+    expect(normalizeSlashCommand('/use')).toBe('/datasets');
+    expect(normalizeSlashCommand('/datasets')).toBe('/datasets');
+    expect(commandHelp()).toContain('/datasets (/use)');
   });
 });
 
@@ -49,11 +59,22 @@ describe('interactive banner', () => {
     expect(banner).toContain('[ VectorAmp ]');
     expect(banner).toContain('/tmp/project');
     expect(banner).toContain('ds_123');
+    expect(banner).toContain('│ cwd /tmp/project');
+    expect(banner).toContain('│ ctx active dataset: ds_123');
   });
 
   it('shortens home-relative cwd paths', () => {
     expect(formatCwd('/home/jonathan/repos/app', '/home/jonathan')).toBe('~/repos/app');
     expect(formatCwd('/home/jonathan', '/home/jonathan')).toBe('~');
     expect(formatCwd('/srv/app', '/home/jonathan')).toBe('/srv/app');
+  });
+});
+
+
+describe('prompt rendering helpers', () => {
+  it('uses almost the full terminal width while enforcing a usable minimum', () => {
+    expect(promptRuleWidth(120)).toBe(116);
+    expect(promptRuleWidth(40)).toBe(56);
+    expect(renderPromptRule(72)).toContain('─'.repeat(68));
   });
 });
