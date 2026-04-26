@@ -170,7 +170,7 @@ export class InteractiveTerminal {
       const palette = filterCommands(buffer).slice(0, 8);
       if (selected >= palette.length) selected = Math.max(0, palette.length - 1);
       this.clearRender();
-      this.output.write(`\n${renderPromptRule(this.output.columns)}\n`);
+      this.output.write(`${renderPromptRule(this.output.columns)}\n`);
       this.output.write(`${chalk.cyan(prompt)} ${chalk.dim('›')} ${buffer}\n`);
       this.output.write(renderPromptRule(this.output.columns));
       let lines = 3;
