@@ -50,6 +50,9 @@ Config is stored at `~/.config/vectoramp/config.json`. `VECTORAMP_API_KEY`, `VEC
 vectoramp datasets list
 vectoramp datasets create docs --dimension 1536 --metadata '{"team":"support"}'
 vectoramp datasets get ds_123
+vectoramp datasets documents ds_123 --limit 50 --status ready
+vectoramp datasets documents ds_123 --cursor next_cursor_from_previous_page
+vectoramp datasets download-document ds_123 doc_456 --output ./original.pdf
 vectoramp datasets delete ds_123 --yes
 
 vectoramp --dataset ds_123 datasets search "refund policy" --top-k 5
@@ -58,6 +61,16 @@ vectoramp --dataset ds_123 datasets add-texts --file ./intro.md
 vectoramp --dataset ds_123 datasets ask "What is in this dataset?" --stream
 
 vectoramp ask "Summarize my active dataset" --dataset ds_123 --stream
+```
+
+## Dataset source documents
+
+Document listing uses cursor pagination. Pass the response `next_cursor` back with `--cursor`; do not assume offsets or totals. Downloads write retained original bytes and follow API/storage redirects. Omit `--output` to stream bytes to stdout.
+
+```bash
+vectoramp datasets documents ds_123 --limit 50 --status ready
+vectoramp datasets documents ds_123 --cursor eyJpZCI6...
+vectoramp datasets download-document ds_123 doc_456 --output ./original.pdf
 ```
 
 ## Ingestion

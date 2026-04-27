@@ -4,6 +4,7 @@ import { joinUrl, toSnakeCasePayload } from './utils.js';
 import type { VectorAmpConfig } from './config.js';
 
 export interface RequestOptions { query?: Record<string, unknown>; body?: unknown; headers?: HeadersInit }
+export interface DatasetDocumentListParams { limit?: number; cursor?: string; status?: string }
 export interface StreamEvent { event?: string; data?: unknown; id?: string; retry?: number }
 export interface IngestFile { path: string; content: string; metadata?: Record<string, unknown> }
 
@@ -31,6 +32,20 @@ export class VectorAmpClient {
     }
     if (res.status === 204) return undefined as T;
     return parseBody(res) as Promise<T>;
+  }
+
+  /** Download a raw response body. Fetch follows redirects by default, preserving the final object bytes. */
+  async download(method: string, path: string, options: RequestOptions = {}): Promise<ArrayBuffer> {
+    const url = this.url(path, options.query);
+    const headers = new Headers(options.headers);
+    headers.set('Accept', '*/*');
+    if (this.config.apiKey) headers.set('X-API-Key', this.config.apiKey);
+    const res = await this.fetchImpl(url, { method, headers });
+    if (!res.ok) {
+      const body = await parseBody(res);
+      throw new VectorAmpApiError(errorMessage(body) ?? `VectorAmp API request failed: ${res.status} ${res.statusText}`, res.status, body);
+    }
+    return res.arrayBuffer();
   }
 
   async *stream(path: string, body: unknown): AsyncIterable<StreamEvent> {
@@ -63,10 +78,14 @@ export class VectorAmpClient {
     } finally { reader.releaseLock(); }
   }
 
-  listDatasets(params: Record<string, unknown> = {}) { return this.request<unknown>('GET', '/datasets', { query: params }); }
+  listDatasets(params: Record<string, unknown> = {}) { return this.request<unknown>('GET', '/datasets', { query: { ...params } }); }
   getDataset(id: string) { return this.request<unknown>('GET', `/datasets/${encodeURIComponent(id)}`); }
   createDataset(body: Record<string, unknown>) { return this.request<unknown>('POST', '/datasets', { body: toSnakeCasePayload({ ...body, indexType: 'sable' }) }); }
   deleteDataset(id: string) { return this.request<void>('DELETE', `/datasets/${encodeURIComponent(id)}`); }
+  /** List retained source documents using cursor pagination; pass next_cursor as cursor for the next page. */
+  listDocuments(id: string, params: DatasetDocumentListParams = {}) { return this.request<unknown>('GET', `/datasets/${encodeURIComponent(id)}/documents`, { query: { ...params } }); }
+  /** Download retained original document bytes; redirects are followed by fetch. */
+  downloadDocument(id: string, documentId: string) { return this.download('GET', `/datasets/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}/download`); }
   search(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/search`, { body: toSnakeCasePayload(body) }); }
   addTexts(id: string, texts: unknown[], metadata?: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/texts`, { body: toSnakeCasePayload({ texts, metadata }) }); }
   createSource(body: Record<string, unknown>) { return this.request<{ id?: string } & Record<string, unknown>>('POST', '/ingestion/sources', { body: toSnakeCasePayload(body) }); }
