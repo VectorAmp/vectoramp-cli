@@ -22,6 +22,27 @@ describe('VectorAmpClient', () => {
     expect(JSON.parse(calls[0].body as string)).toEqual({ query_text: 'hello', top_k: 3 });
   });
 
+
+  it('lists and downloads dataset documents with cursor params and raw bytes', async () => {
+    const calls: any[] = [];
+    const bytes = new Uint8Array([0, 1, 255, 86, 65]);
+    const fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith('/download')) return new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream' } });
+      return json({ documents: [{ id: 'doc_1', file_name: 'a.pdf', download_available: true }], next_cursor: 'cur2', limit: 2 });
+    }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ apiKey: 'k', baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+
+    const page = await client.listDocuments('ds', { limit: 2, cursor: 'cur1', status: 'ready' });
+    const body = await client.downloadDocument('ds', 'doc_1');
+
+    expect(page).toMatchObject({ next_cursor: 'cur2' });
+    expect(calls[0].url).toBe('https://api.example.com/datasets/ds/documents?limit=2&cursor=cur1&status=ready');
+    expect(calls[1].url).toBe('https://api.example.com/datasets/ds/documents/doc_1/download');
+    expect(new Headers(calls[1].init.headers).get('Accept')).toBe('*/*');
+    expect(Array.from(new Uint8Array(body))).toEqual(Array.from(bytes));
+  });
+
   it('parses api errors', async () => {
     const fetch = (async () => new Response(JSON.stringify({ error: 'nope' }), { status: 401, statusText: 'Unauthorized' })) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);

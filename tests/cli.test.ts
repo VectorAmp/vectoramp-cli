@@ -26,6 +26,17 @@ it('runs dataset list against mock transport', async () => {
   expect(logs.join('\n')).toContain('ds_1');
 });
 
+it('runs dataset document listing with cursor params', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ documents: [{ id: 'doc_1' }], next_cursor: 'cur2' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'documents', 'ds_123', '--limit', '2', '--cursor', 'cur1', '--status', 'ready']);
+  expect(calls[0].url).toBe('https://api.test/datasets/ds_123/documents?limit=2&cursor=cur1&status=ready');
+  expect(logs.join('\n')).toContain('doc_1');
+});
+
 it('stores default dataset via config use', async () => {
   await buildProgram({}).parseAsync(['node', 'vectoramp', 'config', 'use', 'ds_123']);
   expect(logs.join('\n')).toContain('ds_123');

@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import cliProgress from 'cli-progress';
 import { Command } from 'commander';
+import { writeFile } from 'node:fs/promises';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
 import { collectFiles, VectorAmpClient } from './client.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
@@ -36,6 +37,17 @@ export function buildProgram(io: CliIO = {}): Command {
     await spin('Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
   });
   datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin('Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
+  datasets.command('documents <id>').alias('docs').description('List retained dataset source documents').option('--limit <n>', 'Page size', parseInt).option('--cursor <cursor>', 'Cursor from next_cursor').option('--status <status>', 'Filter by document status').action(async (id, opts) => {
+    const ctx = await context(program.opts(), io); await spin('Listing documents', async () => show(ctx, await ctx.client.listDocuments(id, compact(opts))));
+  });
+  datasets.command('download-document <id> <document-id>').description('Download retained original document bytes').option('-o, --output <path>', 'Write downloaded bytes to file').action(async (id, documentId, opts) => {
+    const ctx = await context(program.opts(), io);
+    await spin('Downloading document', async () => {
+      const bytes = Buffer.from(await ctx.client.downloadDocument(id, documentId));
+      if (opts.output) { await writeFile(opts.output, bytes); console.log(chalk.green(`Wrote ${opts.output}`)); }
+      else process.stdout.write(bytes);
+    });
+  });
   datasets.command('delete <id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
     const ctx = await context(program.opts(), io); await spin('Deleting dataset', async () => { await ctx.client.deleteDataset(id); console.log(chalk.green(`Deleted ${id}`)); });
