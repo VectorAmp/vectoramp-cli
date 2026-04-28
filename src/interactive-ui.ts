@@ -24,7 +24,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/add-texts', usage: '/add-texts <text>', description: 'Add inline text to the active dataset' },
   { name: '/ingest-files', usage: '/ingest-files <path>', description: 'Upload local text files into the active dataset' },
   { name: '/ask', usage: '/ask <question>', description: 'Ask Intelligence against the active dataset' },
-  { name: '/sources', usage: '/sources <web|s3|gdrive> <uri>', description: 'Create an ingestion source' },
+  { name: '/sources', usage: '/sources <web|s3|gdrive|confluence|jira> <uri>', description: 'Create an ingestion source' },
   { name: '/config', usage: '/config', description: 'Show resolved local CLI config' },
   { name: '/exit', usage: '/exit', description: 'Leave interactive mode' },
 ];
