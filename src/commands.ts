@@ -67,7 +67,7 @@ export function buildProgram(io: CliIO = {}): Command {
   datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').action(async (root, opts) => ingestFiles(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
 
   const sources = program.command('sources').description('Create ingestion sources');
-  for (const type of ['web', 's3', 'gdrive', 'file_upload'] as const) {
+  for (const type of ['web', 's3', 'gdrive', 'confluence', 'jira', 'file_upload'] as const) {
     sources.command(`${type} [uri]`).option('--name <name>').option('--config <json>').description(`Create ${type} source`).action(async (uri, opts) => {
       const ctx = await context(program.opts(), io);
       await spin(`Creating ${type} source`, async () => show(ctx, await ctx.client.createSource(compact({ sourceType: type, uri, name: opts.name, config: parseJsonOption(opts.config, undefined) }))));
