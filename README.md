@@ -78,17 +78,20 @@ vectoramp datasets download-document ds_123 doc_456 --output ./original.pdf
 Create reusable sources:
 
 ```bash
-vectoramp sources web https://docs.example.com --name docs-web
+vectoramp sources web https://docs.example.com --name docs-web --config '{"include_assets":true,"max_assets_per_page":5}'
 vectoramp sources s3 s3://my-bucket/docs --config '{"recursive":true}'
+vectoramp sources gcs gs://my-bucket/docs --config '{"bucket":"my-bucket","prefix":"docs/","auth_mode":"oauth"}'
 vectoramp sources gdrive google-folder-id
+vectoramp sources jira --name "Jira" --config '{"projects":["ENG"],"include_comments":true}'
 vectoramp sources file_upload --name "Local upload"
 ```
 
 Start ingestion from a source descriptor:
 
 ```bash
-vectoramp --dataset ds_123 sources ingest web https://docs.example.com
+vectoramp --dataset ds_123 sources ingest web https://docs.example.com --config '{"include_assets":true}'
 vectoramp --dataset ds_123 sources ingest s3 s3://my-bucket/docs --config '{"recursive":true}'
+vectoramp --dataset ds_123 sources ingest gcs gs://my-bucket/docs --config '{"bucket":"my-bucket","prefix":"docs/","auth_mode":"oauth"}'
 ```
 
 Local file ingestion reads common text formats (`.md`, `.txt`, `.json`, `.csv`, `.html`, `.yaml`, etc.), creates a minimal `file_upload` source automatically when no source id is supplied, then uploads file contents to the filesystem ingestion endpoint:
@@ -136,6 +139,7 @@ Common commands:
 /ingest-files ./docs
 /ask summarize this dataset
 /sources web https://docs.example.com
+/sources gcs gs://my-bucket/docs
 /config
 /exit
 ```
