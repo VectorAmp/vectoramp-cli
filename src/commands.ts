@@ -78,6 +78,12 @@ export function buildProgram(io: CliIO = {}): Command {
     await spin('Starting source ingestion', async () => show(ctx, await ctx.client.ingestSource(ctx.datasetId!, compact({ sourceType: type, uri, config: parseJsonOption(opts.config, undefined) }))));
   });
 
+  const jobs = program.command('jobs').description('Manage ingestion jobs');
+  jobs.command('retry <job-id>').description('Retry an eligible failed or cancelled ingestion job as a fresh full rerun').action(async (jobId) => {
+    const ctx = await context(program.opts(), io);
+    await spin('Retrying ingestion job', async () => show(ctx, await ctx.client.retryJob(jobId)));
+  });
+
   const configCmd = program.command('config').description('Manage local config');
   configCmd.command('show').action(async () => printJson(await readConfig()));
   configCmd.command('set').option('--api-key <key>').option('--base-url <url>').option('--api-prefix <prefix>').option('--dataset <id>').action(async (opts) => {
