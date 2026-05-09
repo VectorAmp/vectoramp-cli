@@ -91,6 +91,7 @@ export class VectorAmpClient {
   createSource(body: Record<string, unknown>) { return this.request<{ id?: string } & Record<string, unknown>>('POST', '/ingestion/sources', { body: toSnakeCasePayload(body) }); }
   ingestSource(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/sources`, { body: toSnakeCasePayload(body) }); }
   ingestFiles(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/filesystem`, { body: toSnakeCasePayload(body) }); }
+  retryJob(jobId: string) { return this.request<unknown>('POST', `/ingestion/jobs/${encodeURIComponent(jobId)}/retry`); }
   ask(body: Record<string, unknown>) { return this.request<unknown>('POST', '/intelligence/query', { body: toSnakeCasePayload(body) }); }
   askStream(body: Record<string, unknown>) { return this.stream('/intelligence/query', toSnakeCasePayload({ ...body, stream: true })); }
 
