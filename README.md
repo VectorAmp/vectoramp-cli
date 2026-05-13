@@ -1,8 +1,5 @@
 # VectorAmp CLI
 
-[![pipeline status](https://gitlab.com/VectorAmp/SDK/CLI/badges/main/pipeline.svg)](https://gitlab.com/VectorAmp/SDK/CLI/-/commits/main)
-[![coverage report](https://gitlab.com/VectorAmp/SDK/CLI/badges/main/coverage.svg)](https://gitlab.com/VectorAmp/SDK/CLI/-/commits/main)
-
 Official command-line interface for VectorAmp datasets, ingestion, semantic search, and Intelligence.
 
 - Binary: `vectoramp` with short alias `va`
