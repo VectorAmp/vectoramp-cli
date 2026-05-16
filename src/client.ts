@@ -92,6 +92,12 @@ export class VectorAmpClient {
   ingestSource(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/sources`, { body: toSnakeCasePayload(body) }); }
   ingestFiles(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/filesystem`, { body: toSnakeCasePayload(body) }); }
   retryJob(jobId: string) { return this.request<unknown>('POST', `/ingestion/jobs/${encodeURIComponent(jobId)}/retry`); }
+  listSchedules(params: Record<string, unknown> = {}) { return this.request<unknown>('GET', '/ingestion/schedules', { query: { ...params } }); }
+  getSchedule(scheduleId: string) { return this.request<unknown>('GET', `/ingestion/schedules/${encodeURIComponent(scheduleId)}`); }
+  createSchedule(body: Record<string, unknown>) { return this.request<unknown>('POST', '/ingestion/schedules', { body: toSnakeCasePayload(body) }); }
+  updateSchedule(scheduleId: string, body: Record<string, unknown>) { return this.request<unknown>('PATCH', `/ingestion/schedules/${encodeURIComponent(scheduleId)}`, { body: toSnakeCasePayload(body) }); }
+  deleteSchedule(scheduleId: string) { return this.request<unknown>('DELETE', `/ingestion/schedules/${encodeURIComponent(scheduleId)}`); }
+  triggerSchedule(scheduleId: string) { return this.request<unknown>('POST', `/ingestion/schedules/${encodeURIComponent(scheduleId)}/trigger`); }
   ask(body: Record<string, unknown>) { return this.request<unknown>('POST', '/intelligence/query', { body: toSnakeCasePayload(body) }); }
   askStream(body: Record<string, unknown>) { return this.stream('/intelligence/query', toSnakeCasePayload({ ...body, stream: true })); }
 
