@@ -84,6 +84,71 @@ export function buildProgram(io: CliIO = {}): Command {
     await spin('Retrying ingestion job', async () => show(ctx, await ctx.client.retryJob(jobId)));
   });
 
+  const schedules = program.command('schedules').alias('schedule').description('Manage recurring ingestion schedules');
+  schedules.command('list').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
+    const ctx = await context(program.opts(), io);
+    await spin('Listing schedules', async () => show(ctx, await ctx.client.listSchedules(compact(opts))));
+  });
+  schedules.command('get <schedule-id>').action(async (id) => {
+    const ctx = await context(program.opts(), io);
+    await spin('Fetching schedule', async () => show(ctx, await ctx.client.getSchedule(id)));
+  });
+  schedules.command('create')
+    .requiredOption('--source-id <id>', 'Ingestion source id to pull from')
+    .requiredOption('--dataset-id <id>', 'Dataset to ingest into')
+    .requiredOption('--cron <expr>', 'Cron expression, 5 fields (e.g. "0 * * * *")')
+    .option('--timezone <tz>', 'IANA timezone (defaults to UTC)')
+    .option('--pipeline-id <id>', 'Pipeline id (defaults to ingestion default)')
+    .option('--no-enabled', 'Create the schedule disabled')
+    .option('--name <name>', 'Human-readable name')
+    .option('--metadata <json>', 'Metadata JSON blob')
+    .action(async (opts) => {
+      const ctx = await context(program.opts(), io);
+      const body = compact({
+        sourceId: opts.sourceId,
+        datasetId: opts.datasetId,
+        cron: opts.cron,
+        timezone: opts.timezone,
+        pipelineId: opts.pipelineId,
+        enabled: opts.enabled === false ? false : undefined,
+        name: opts.name,
+        metadata: parseJsonOption(opts.metadata, undefined),
+      });
+      await spin('Creating schedule', async () => show(ctx, await ctx.client.createSchedule(body)));
+    });
+  schedules.command('update <schedule-id>')
+    .option('--cron <expr>', 'New cron expression')
+    .option('--timezone <tz>', 'New timezone')
+    .option('--pipeline-id <id>', 'New pipeline id')
+    .option('--enable', 'Enable the schedule')
+    .option('--disable', 'Disable the schedule')
+    .option('--name <name>', 'New name')
+    .option('--metadata <json>', 'New metadata JSON blob')
+    .action(async (id, opts) => {
+      if (opts.enable && opts.disable) throw new Error('--enable and --disable are mutually exclusive');
+      const enabled = opts.enable ? true : opts.disable ? false : undefined;
+      const body = compact({
+        cron: opts.cron,
+        timezone: opts.timezone,
+        pipelineId: opts.pipelineId,
+        enabled,
+        name: opts.name,
+        metadata: parseJsonOption(opts.metadata, undefined),
+      });
+      if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
+      const ctx = await context(program.opts(), io);
+      await spin('Updating schedule', async () => show(ctx, await ctx.client.updateSchedule(id, body)));
+    });
+  schedules.command('delete <schedule-id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
+    if (!opts.yes) throw new Error('Refusing to delete without --yes');
+    const ctx = await context(program.opts(), io);
+    await spin('Deleting schedule', async () => show(ctx, await ctx.client.deleteSchedule(id)));
+  });
+  schedules.command('trigger <schedule-id>').description('Kick off an immediate run for the schedule, outside its cron cadence').action(async (id) => {
+    const ctx = await context(program.opts(), io);
+    await spin('Triggering schedule', async () => show(ctx, await ctx.client.triggerSchedule(id)));
+  });
+
   const configCmd = program.command('config').description('Manage local config');
   configCmd.command('show').action(async () => printJson(await readConfig()));
   configCmd.command('set').option('--api-key <key>').option('--base-url <url>').option('--api-prefix <prefix>').option('--dataset <id>').action(async (opts) => {

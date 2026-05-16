@@ -43,6 +43,65 @@ it('stores default dataset via config use', async () => {
 });
 
 
+it('manages schedules via list/create/update/delete/trigger commands', async () => {
+  const calls: any[] = [];
+  const responses = [
+    { schedules: [{ id: 'sch_1', cron: '0 * * * *', enabled: true }], total: 1, limit: 10, offset: 0 },
+    { id: 'sch_2', cron: '0 0 * * *', enabled: true },
+    { id: 'sch_2', enabled: false },
+    { deleted: true },
+    { job_id: 'job_42' },
+  ];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, method: init?.method, body: init?.body });
+    return new Response(JSON.stringify(responses.shift()), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'schedules', 'list', '--limit', '10', '--offset', '0'
+  ]);
+  expect(calls[0].url).toBe('https://api.test/ingestion/schedules?limit=10&offset=0');
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'schedules', 'create',
+    '--source-id', 'src_1',
+    '--dataset-id', 'ds_1',
+    '--cron', '0 0 * * *',
+    '--timezone', 'UTC',
+  ]);
+  expect(calls[1].method).toBe('POST');
+  expect(calls[1].url).toBe('https://api.test/ingestion/schedules');
+  expect(JSON.parse(calls[1].body as string)).toEqual({
+    source_id: 'src_1',
+    dataset_id: 'ds_1',
+    cron: '0 0 * * *',
+    timezone: 'UTC',
+  });
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'schedules', 'update', 'sch_2', '--disable'
+  ]);
+  expect(calls[2].method).toBe('PATCH');
+  expect(JSON.parse(calls[2].body as string)).toEqual({ enabled: false });
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'schedules', 'delete', 'sch_2', '--yes'
+  ]);
+  expect(calls[3].method).toBe('DELETE');
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'schedules', 'trigger', 'sch_1'
+  ]);
+  expect(calls[4].method).toBe('POST');
+  expect(calls[4].url).toBe('https://api.test/ingestion/schedules/sch_1/trigger');
+  expect(logs.join('\n')).toContain('job_42');
+});
+
 it('runs one-off ask with public intelligence payload', async () => {
   const calls: any[] = [];
   const fetch = (async (url: string, init: RequestInit) => {
