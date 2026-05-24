@@ -5,6 +5,7 @@ import { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
 import { collectFiles, VectorAmpClient } from './client.js';
+import { embeddingDimensions, openai } from './embeddings.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
 import { commandHelp, extractDatasets, InteractiveTerminal, normalizeSlashCommand, renderBanner } from './interactive-ui.js';
 
@@ -32,10 +33,20 @@ export function buildProgram(io: CliIO = {}): Command {
   datasets.command('list').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
     const ctx = await context(program.opts(), io); await spin('Listing datasets', async () => show(ctx, await ctx.client.listDatasets(compact(opts))));
   });
-  datasets.command('create <name>').requiredOption('--dimension <n>', 'Vector dimension', parseInt).option('--metadata <json>', 'Metadata JSON').action(async (name, opts) => {
-    const ctx = await context(program.opts(), io); const body = { name, dimension: opts.dimension, metadata: parseJsonOption(opts.metadata, undefined) };
-    await spin('Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
-  });
+  datasets.command('create <name>')
+    .option('--dimension <n>', 'Vector dimension. Inferred for built-in embeddings.', parseInt)
+    .option('--openai <small|large>', 'Use OpenAI text-embedding-3-small or text-embedding-3-large')
+    .option('--embedding-provider <provider>', 'Embedding provider override')
+    .option('--embedding-model <model>', 'Embedding model override')
+    .option('--metadata <json>', 'Metadata JSON')
+    .action(async (name, opts) => {
+      const ctx = await context(program.opts(), io);
+      const embedding = resolveEmbeddingOptions(opts);
+      const dimension = opts.dimension ?? embeddingDimensions[embedding.model];
+      if (!dimension) throw new Error('Vector dimension required for custom embedding models. Pass --dimension <n>.');
+      const body = { name, dimension, embedding, metadata: parseJsonOption(opts.metadata, undefined) };
+      await spin('Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
+    });
   datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin('Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
   datasets.command('documents <id>').alias('docs').description('List retained dataset source documents').option('--limit <n>', 'Page size', parseInt).option('--cursor <cursor>', 'Cursor from next_cursor').option('--status <status>', 'Filter by document status').action(async (id, opts) => {
     const ctx = await context(program.opts(), io); await spin('Listing documents', async () => show(ctx, await ctx.client.listDocuments(id, compact(opts))));
@@ -159,6 +170,17 @@ export function buildProgram(io: CliIO = {}): Command {
 
   program.exitOverride();
   return program;
+}
+
+function resolveEmbeddingOptions(opts: { openai?: string; embeddingProvider?: string; embeddingModel?: string }) {
+  if (opts.openai) {
+    if (opts.openai !== 'small' && opts.openai !== 'large') throw new Error('--openai must be "small" or "large"');
+    return openai(opts.openai);
+  }
+  return {
+    provider: opts.embeddingProvider ?? 'vectoramp',
+    model: opts.embeddingModel ?? 'VectorAmp-Embedding-4B'
+  };
 }
 
 async function context(opts: GlobalOpts, io: CliIO) {

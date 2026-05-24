@@ -37,6 +37,21 @@ it('runs dataset document listing with cursor params', async () => {
   expect(logs.join('\n')).toContain('doc_1');
 });
 
+it('creates OpenAI embedding datasets with inferred dimension', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ id: 'ds_openai' }), { headers: { 'content-type': 'application/json' }, status: 201 });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'docs', '--openai', 'small']);
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    name: 'docs',
+    dimension: 1536,
+    embedding: { provider: 'openai', model: 'text-embedding-3-small' },
+    index_type: 'sable'
+  });
+});
+
 it('stores default dataset via config use', async () => {
   await buildProgram({}).parseAsync(['node', 'vectoramp', 'config', 'use', 'ds_123']);
   expect(logs.join('\n')).toContain('ds_123');

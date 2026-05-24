@@ -48,7 +48,7 @@ Config is stored at `~/.config/vectoramp/config.json`. `VECTORAMP_API_KEY`, `VEC
 
 ```bash
 vectoramp datasets list
-vectoramp datasets create docs --dimension 1536 --metadata '{"team":"support"}'
+vectoramp datasets create docs --openai small --metadata '{"team":"support"}'
 vectoramp datasets get ds_123
 vectoramp datasets documents ds_123 --limit 50 --status ready
 vectoramp datasets documents ds_123 --cursor next_cursor_from_previous_page
