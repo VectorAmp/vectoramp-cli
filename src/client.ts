@@ -87,7 +87,18 @@ export class VectorAmpClient {
   /** Download retained original document bytes; redirects are followed by fetch. */
   downloadDocument(id: string, documentId: string) { return this.download('GET', `/datasets/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}/download`); }
   search(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/search`, { body: toSnakeCasePayload(body) }); }
-  addTexts(id: string, texts: unknown[], metadata?: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/texts`, { body: toSnakeCasePayload({ texts, metadata }) }); }
+  async addTexts(id: string, texts: unknown[], metadata?: Record<string, unknown>) {
+    const textList = texts.map((text) => String(text));
+    const embedded = await this.request<{ embeddings?: number[][]; embedding?: number[] }>('POST', `/datasets/${encodeURIComponent(id)}/embed`, { body: toSnakeCasePayload({ texts: textList }) });
+    const embeddings = embedded.embeddings ?? (embedded.embedding ? [embedded.embedding] : []);
+    if (embeddings.length !== textList.length) throw new Error(`VectorAmp API returned ${embeddings.length} embeddings for ${textList.length} texts`);
+    const vectors = textList.map((text, index) => ({
+      id: `text-${index + 1}`,
+      values: embeddings[index],
+      metadata: { ...(metadata ?? {}), text }
+    }));
+    return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/insert`, { body: toSnakeCasePayload({ vectors }) });
+  }
   createSource(body: Record<string, unknown>) { return this.request<{ id?: string } & Record<string, unknown>>('POST', '/ingestion/sources', { body: toSnakeCasePayload(body) }); }
   ingestSource(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/sources`, { body: toSnakeCasePayload(body) }); }
   ingestFiles(id: string, body: Record<string, unknown>) { return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/ingestions/filesystem`, { body: toSnakeCasePayload(body) }); }
