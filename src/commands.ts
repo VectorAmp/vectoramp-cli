@@ -63,9 +63,9 @@ export function buildProgram(io: CliIO = {}): Command {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
     const ctx = await context(program.opts(), io); await spin('Deleting dataset', async () => { await ctx.client.deleteDataset(id); console.log(chalk.green(`Deleted ${id}`)); });
   });
-  datasets.command('search <query...>').option('-k, --top-k <n>', 'Number of results', parseInt).option('--dataset <id>', 'Dataset id').action(async (query, opts) => {
+  datasets.command('search <query...>').option('-k, --top-k <n>', 'Number of results', parseInt).option('--rerank', 'Enable VectorAmp reranking (VectorAmp-Rerank-v1)').option('--dataset <id>', 'Dataset id').action(async (query, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
-    await spin('Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, compact({ queryText: query.join(' '), topK: opts.topK }))));
+    await spin('Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, compact({ queryText: query.join(' '), topK: opts.topK, rerank: opts.rerank ? { enabled: true } : undefined }))));
   });
   datasets.command('add-texts <texts...>').option('--file <path>', 'Read one text payload from file').option('--metadata <json>', 'Metadata JSON').option('--dataset <id>', 'Dataset id').action(async (texts, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
