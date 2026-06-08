@@ -18,8 +18,8 @@ describe('VectorAmpClient', () => {
     const calls: any[] = [];
     const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return json({ results: [] }); }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
-    await client.search('ds', { queryText: 'hello', topK: 3 });
-    expect(JSON.parse(calls[0].body as string)).toEqual({ query_text: 'hello', top_k: 3 });
+    await client.search('ds', { queryText: 'hello', topK: 3, rerank: { enabled: true } });
+    expect(JSON.parse(calls[0].body as string)).toEqual({ query_text: 'hello', top_k: 3, rerank: { enabled: true } });
   });
 
 

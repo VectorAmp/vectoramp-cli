@@ -135,6 +135,7 @@ Common commands:
 /help
 /datasets
 /search how does SABLE work?
+vectoramp datasets search "how does SABLE work?" --rerank # vectoramp / VectorAmp-Rerank-v1
 /add-texts SABLE is VectorAmp's billion-scale index architecture.
 /ingest-files ./docs
 /ask summarize this dataset
