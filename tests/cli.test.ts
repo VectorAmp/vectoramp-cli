@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildProgram } from '../src/commands.js';
+import { buildProgram, interactive } from '../src/commands.js';
+import { InteractiveTerminal } from '../src/interactive-ui.js';
 
 let configDir: string;
 let logs: string[];
@@ -127,4 +128,53 @@ it('runs one-off ask with public intelligence payload', async () => {
   expect(calls[0].url).toBe('https://api.test/intelligence/query');
   expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'Do I have any pictures of dogs?', dataset_id: 'ds_123', include_sources: true, stream: false });
   expect(logs.join('\n')).toContain('dogs found');
+});
+
+it('one-off ask forwards --top-k', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ answer: 'ok' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', '--top-k', '12', 'hello?']);
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'hello?', top_k: 12 });
+});
+
+it('interactive REPL accumulates and sends multi-turn conversation history', async () => {
+  const bodies: any[] = [];
+  const sse = (answer: string) => {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      start(c) {
+        c.enqueue(enc.encode(`data: {"chunk_type":"text","content":${JSON.stringify(answer)}}\n\n`));
+        c.enqueue(enc.encode('data: {"chunk_type":"done"}\n\n'));
+        c.close();
+      }
+    });
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  let n = 0;
+  const fetch = (async (url: string, init: RequestInit) => {
+    bodies.push({ url, body: init?.body ? JSON.parse(init.body as string) : null });
+    return sse(`answer-${++n}`);
+  }) as unknown as typeof globalThis.fetch;
+
+  const lines: (string | undefined)[] = ['first question', 'second question', undefined];
+  let i = 0;
+  vi.spyOn(InteractiveTerminal.prototype, 'readLine').mockImplementation(async () => lines[i++]);
+  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+  await interactive({ fetch }, { baseUrl: 'https://api.test', dataset: 'ds_1', history: 10 });
+
+  const asks = bodies.filter((b) => String(b.url).endsWith('/intelligence/query'));
+  expect(asks).toHaveLength(2);
+  // First turn carries no prior history.
+  expect(asks[0].body).toMatchObject({ query: 'first question', dataset_id: 'ds_1', stream: true });
+  expect(asks[0].body.conversation_history).toBeUndefined();
+  // Second turn includes the first user message and the streamed assistant answer.
+  expect(asks[1].body).toMatchObject({ query: 'second question', stream: true });
+  expect(asks[1].body.conversation_history).toEqual([
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'answer-1' }
+  ]);
 });

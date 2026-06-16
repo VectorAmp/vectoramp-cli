@@ -61,6 +61,25 @@ vectoramp --dataset ds_123 datasets add-texts --file ./intro.md
 vectoramp --dataset ds_123 datasets ask "What is in this dataset?" --stream
 
 vectoramp ask "Summarize my active dataset" --dataset ds_123 --stream
+vectoramp ask "Summarize my active dataset" --dataset ds_123 --top-k 12
+```
+
+## Multi-turn conversations
+
+The Intelligence API is stateless, so follow-up questions need the prior turns
+sent as context. One-off `ask` commands are single-turn. In interactive mode the
+REPL keeps the running conversation and sends a window of recent messages with
+each follow-up, so questions like "and why is that?" resolve against earlier
+turns.
+
+```bash
+# Control how many prior messages are included (default 10).
+vectoramp --history 6
+
+# Inside the REPL:
+#   ask a question, then a follow-up that relies on the previous answer
+#   /reset (or /new) clears the conversation history
+#   /help  lists all interactive commands
 ```
 
 ## Dataset source documents

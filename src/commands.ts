@@ -11,7 +11,7 @@ import { commandHelp, extractDatasets, InteractiveTerminal, normalizeSlashComman
 
 export interface CliIO { stdout?: NodeJS.WriteStream; stderr?: NodeJS.WriteStream; fetch?: typeof fetch }
 
-type GlobalOpts = { apiKey?: string; baseUrl?: string; apiPrefix?: string; dataset?: string; json?: boolean };
+type GlobalOpts = { apiKey?: string; baseUrl?: string; apiPrefix?: string; dataset?: string; json?: boolean; history?: number };
 
 export function buildProgram(io: CliIO = {}): Command {
   const program = new Command();
@@ -20,13 +20,14 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--base-url <url>', 'API base URL (defaults to VECTORAMP_BASE_URL or https://api.vectoramp.com)')
     .option('--api-prefix <prefix>', 'API path prefix (defaults to none for the public REST API)')
     .option('-d, --dataset <id>', 'Dataset id to use')
+    .option('--history <n>', 'Max prior messages to include in interactive follow-ups', (v) => parseInt(v, 10), 10)
     .option('--json', 'Print raw JSON output');
 
   program.action(async () => interactive(io, program.opts<GlobalOpts>()));
 
-  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').action(async (question, opts) => {
+  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).action(async (question, opts) => {
     const ctx = await context(program.opts(), io);
-    await ask(ctx, question.join(' '), opts.stream);
+    await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
   });
 
   const datasets = program.command('datasets').alias('dataset').description('Manage datasets');
@@ -72,8 +73,8 @@ export function buildProgram(io: CliIO = {}): Command {
     if (opts.file) texts.push(await (await import('node:fs/promises')).readFile(opts.file, 'utf8'));
     await spin('Adding texts', async () => show(ctx, await ctx.client.addTexts(ctx.datasetId!, texts, parseJsonOption(opts.metadata, undefined))));
   });
-  datasets.command('ask <question...>').option('--stream', 'Stream output').option('--dataset <id>', 'Dataset id').action(async (question, opts) => {
-    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx); await ask(ctx, question.join(' '), opts.stream);
+  datasets.command('ask <question...>').option('--stream', 'Stream output').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--dataset <id>', 'Dataset id').action(async (question, opts) => {
+    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx); await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
   });
   datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').action(async (root, opts) => ingestFiles(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
 
@@ -191,28 +192,52 @@ async function requireDataset(ctx: { datasetId?: string }) { if (!ctx.datasetId)
 async function spin<T>(text: string, fn: () => Promise<T>): Promise<T> { const spinner = ora(text).start(); try { const out = await fn(); spinner.succeed(); return out; } catch (e) { spinner.fail(); throw e; } }
 function show(ctx: { json: boolean }, value: unknown) { if (ctx.json) printJson(value); else printJson(value); }
 
-async function ask(ctx: Awaited<ReturnType<typeof context>>, question: string, stream: boolean) {
-  const body = compact({ query: question, datasetId: ctx.datasetId, includeSources: true });
+export interface ConversationTurn { role: 'user' | 'assistant' | 'system'; content: string }
+
+interface AskOptions { conversationHistory?: ConversationTurn[]; topK?: number }
+
+// Returns the assistant's answer text so callers (e.g. the interactive REPL) can
+// accumulate multi-turn conversation history. `conversationHistory` is sent
+// verbatim; the caller decides how many prior turns to include.
+async function ask(
+  ctx: Awaited<ReturnType<typeof context>>,
+  question: string,
+  stream: boolean,
+  opts: AskOptions = {}
+): Promise<string> {
+  const body = compact({
+    query: question,
+    datasetId: ctx.datasetId,
+    includeSources: true,
+    topK: opts.topK,
+    conversationHistory: opts.conversationHistory?.length ? opts.conversationHistory : undefined,
+  });
   if (stream) {
     const spinner = ora('Asking VectorAmp').start();
     let wroteChunk = false;
+    let answer = '';
     try {
       for await (const event of ctx.client.askStream(body)) {
         if (event.event === 'done' || event.data === '[DONE]') break;
         const chunk = renderAskStreamChunk(event.data);
         if (!chunk) continue;
         if (!wroteChunk) { spinner.stop(); wroteChunk = true; }
+        answer += chunk;
         process.stdout.write(chunk);
       }
       if (!wroteChunk) spinner.stop();
-      process.stdout.write('\n'); return;
+      process.stdout.write('\n'); return answer;
     } catch (error) {
       if (wroteChunk) process.stdout.write('\n');
       else spinner.stop();
       console.error(chalk.yellow(`Streaming unavailable, falling back: ${(error as Error).message}`));
     }
   }
-  await spin('Asking VectorAmp', async () => showAsk(ctx, await ctx.client.ask({ ...body, stream: false })));
+  const response = await spin('Asking VectorAmp', async () => ctx.client.ask({ ...body, stream: false }));
+  showAsk(ctx, response);
+  return response && typeof response === 'object' && typeof (response as any).answer === 'string'
+    ? (response as any).answer
+    : '';
 }
 
 function showAsk(ctx: { json: boolean }, value: unknown) {
@@ -246,6 +271,17 @@ export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
   let ctx = await context(initial, io);
   console.log(renderBanner({ cwd: process.cwd(), datasetId: ctx.datasetId }));
 
+  // Multi-turn conversation: the Intelligence API is stateless, so the REPL keeps
+  // the running transcript and sends a window of the most recent messages with
+  // each follow-up. `--history <n>` controls how many prior messages are included.
+  const historyWindow = typeof initial.history === 'number' && initial.history >= 0 ? initial.history : 10;
+  const history: ConversationTurn[] = [];
+  const askTurn = async (question: string) => {
+    const answer = await ask(ctx, question, true, { conversationHistory: history.slice(-historyWindow) });
+    history.push({ role: 'user', content: question });
+    if (answer) history.push({ role: 'assistant', content: answer });
+  };
+
   while (true) {
     const line = await terminal.readLine('VectorAmp');
     if (line === undefined) break;
@@ -268,9 +304,10 @@ export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
       else if (cmd === '/search') { await requireDataset(ctx); show(ctx, await ctx.client.search(ctx.datasetId!, { queryText: args.join(' ') })); }
       else if (cmd === '/add-texts') { await requireDataset(ctx); show(ctx, await ctx.client.addTexts(ctx.datasetId!, [args.join(' ')])); }
       else if (cmd === '/ingest-files') await ingestFiles(ctx, args[0], {});
-      else if (cmd === '/ask') await ask(ctx, args.join(' '), true);
+      else if (cmd === '/reset' || cmd === '/new') { history.length = 0; console.log(chalk.green('Conversation history cleared.')); }
+      else if (cmd === '/ask') await askTurn(args.join(' '));
       else if (cmd === '/sources') show(ctx, await ctx.client.createSource({ sourceType: args[0], uri: args[1] }));
-      else if (!cmd.startsWith('/')) await ask(ctx, trimmed, true);
+      else if (!cmd.startsWith('/')) await askTurn(trimmed);
       else console.log(chalk.red(`Unknown command ${cmd}. Try /help.`));
     } catch (error) { console.error(chalk.red((error as Error).message)); }
   }
