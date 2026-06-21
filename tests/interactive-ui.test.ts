@@ -5,7 +5,8 @@ describe('interactive command catalog', () => {
   it('filters slash commands by typed prefix', () => {
     expect(filterCommands('/se').map((command) => command.name)).toEqual(['/search']);
     expect(filterCommands('/dat').map((command) => command.name)).toEqual(['/datasets']);
-    expect(filterCommands('/use').map((command) => command.name)).toEqual(['/datasets']);
+    // /datasets (picker) and /use (direct switch) are now distinct commands.
+    expect(filterCommands('/us').map((command) => command.name)).toEqual(['/use']);
     expect(filterCommands('/use ')).toEqual([]);
     expect(filterCommands('/ask dogs')).toEqual([]);
     expect(filterCommands('plain text')).toEqual([]);
@@ -14,7 +15,7 @@ describe('interactive command catalog', () => {
   it('completes slash commands on tab', () => {
     expect(completeSlashCommand('/sea')).toBe('/search ');
     expect(completeSlashCommand('/dat')).toBe('/datasets ');
-    expect(completeSlashCommand('/use')).toBe('/use ');
+    expect(completeSlashCommand('/us')).toBe('/use ');
     expect(completeSlashCommand('/s')).toBeUndefined();
     expect(completeSlashCommand('/search query')).toBeUndefined();
   });
@@ -23,10 +24,19 @@ describe('interactive command catalog', () => {
     expect(SLASH_COMMANDS.every((command) => command.description.length > 0)).toBe(true);
   });
 
-  it('normalizes legacy slash aliases for execution and documents them in help', () => {
-    expect(normalizeSlashCommand('/use')).toBe('/datasets');
-    expect(normalizeSlashCommand('/datasets')).toBe('/datasets');
-    expect(commandHelp()).toContain('/datasets (/use)');
+  it('normalizes status/new/quit aliases and documents them in help', () => {
+    expect(normalizeSlashCommand('/status')).toBe('/context');
+    expect(normalizeSlashCommand('/context')).toBe('/context');
+    expect(normalizeSlashCommand('/new')).toBe('/reset');
+    expect(normalizeSlashCommand('/quit')).toBe('/exit');
+    expect(commandHelp()).toContain('/context (/status)');
+  });
+
+  it('exposes both the dataset picker and a direct /use switch', () => {
+    const names = SLASH_COMMANDS.map((command) => command.name);
+    expect(names).toContain('/datasets');
+    expect(names).toContain('/use');
+    expect(names).toContain('/context');
   });
 });
 

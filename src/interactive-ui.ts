@@ -19,7 +19,9 @@ export interface DatasetChoice {
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/help', usage: '/help', description: 'Show interactive commands' },
-  { name: '/datasets', aliases: ['/use'], usage: '/datasets', description: 'Pick an active dataset from your account' },
+  { name: '/datasets', usage: '/datasets', description: 'Pick an active dataset from a filterable list' },
+  { name: '/use', usage: '/use <dataset-id>', description: 'Switch directly to a dataset by id' },
+  { name: '/context', aliases: ['/status'], usage: '/context', description: 'Show the active dataset and working directory' },
   { name: '/search', usage: '/search <query>', description: 'Semantic search in the active dataset' },
   { name: '/add-texts', usage: '/add-texts <text>', description: 'Add inline text to the active dataset' },
   { name: '/ingest-files', usage: '/ingest-files <path>', description: 'Upload local text files into the active dataset' },
@@ -27,7 +29,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/reset', aliases: ['/new'], usage: '/reset', description: 'Clear the conversation history for follow-up questions' },
   { name: '/sources', usage: '/sources <web|s3|gcs|gdrive|confluence|jira> <uri>', description: 'Create an ingestion source' },
   { name: '/config', usage: '/config', description: 'Show resolved local CLI config' },
-  { name: '/exit', usage: '/exit', description: 'Leave interactive mode' },
+  { name: '/exit', aliases: ['/quit'], usage: '/exit', description: 'Leave interactive mode' },
 ];
 
 export function commandHelp(): string {

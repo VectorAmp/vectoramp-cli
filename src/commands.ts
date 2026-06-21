@@ -4,14 +4,17 @@ import cliProgress from 'cli-progress';
 import { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
-import { collectFiles, VectorAmpClient } from './client.js';
+import { collectFiles, VectorAmpClient, type IngestFile, type VectorRecord, type SearchOptions } from './client.js';
 import { embeddingDimensions, openai } from './embeddings.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
+import { SOURCE_TYPES } from './sources.js';
 import { commandHelp, extractDatasets, InteractiveTerminal, normalizeSlashCommand, renderBanner } from './interactive-ui.js';
 
 export interface CliIO { stdout?: NodeJS.WriteStream; stderr?: NodeJS.WriteStream; fetch?: typeof fetch }
 
 type GlobalOpts = { apiKey?: string; baseUrl?: string; apiPrefix?: string; dataset?: string; json?: boolean; history?: number };
+
+const DEFAULT_DIM = 2560;
 
 export function buildProgram(io: CliIO = {}): Command {
   const program = new Command();
@@ -25,85 +28,166 @@ export function buildProgram(io: CliIO = {}): Command {
 
   program.action(async () => interactive(io, program.opts<GlobalOpts>()));
 
-  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).action(async (question, opts) => {
-    const ctx = await context(program.opts(), io);
+  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--dataset <id>', 'Dataset id (defaults to "all")').action(async (question, opts) => {
+    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io);
     await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
   });
 
   const datasets = program.command('datasets').alias('dataset').description('Manage datasets');
   datasets.command('list').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
-    const ctx = await context(program.opts(), io); await spin('Listing datasets', async () => show(ctx, await ctx.client.listDatasets(compact(opts))));
+    const ctx = await context(program.opts(), io); await spin(ctx, 'Listing datasets', async () => show(ctx, await ctx.client.listDatasets(compact(opts))));
   });
   datasets.command('create <name>')
-    .option('--dimension <n>', 'Vector dimension. Inferred for built-in embeddings.', parseInt)
+    .description('Create a SABLE dataset. Name only works; defaults VectorAmp-Embedding-4B / dim 2560 / cosine.')
+    .option('--dim <n>', 'Vector dimension. Inferred for built-in embeddings.', parseInt)
+    .option('--metric <metric>', 'Distance metric (default cosine)')
     .option('--openai <small|large>', 'Use OpenAI text-embedding-3-small or text-embedding-3-large')
     .option('--embedding-provider <provider>', 'Embedding provider override')
     .option('--embedding-model <model>', 'Embedding model override')
+    .option('--hybrid', 'Enable hybrid (dense + sparse) search')
     .option('--metadata <json>', 'Metadata JSON')
     .action(async (name, opts) => {
       const ctx = await context(program.opts(), io);
       const embedding = resolveEmbeddingOptions(opts);
-      const dimension = opts.dimension ?? embeddingDimensions[embedding.model];
-      if (!dimension) throw new Error('Vector dimension required for custom embedding models. Pass --dimension <n>.');
-      const body = { name, dimension, embedding, metadata: parseJsonOption(opts.metadata, undefined) };
-      await spin('Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
+      const dim = opts.dim ?? embeddingDimensions[embedding.model] ?? (isDefaultEmbedding(embedding) ? DEFAULT_DIM : undefined);
+      if (!dim) throw new Error('Vector dimension required for custom embedding models. Pass --dim <n>.');
+      const body = compact({
+        name,
+        dim,
+        metric: opts.metric ?? 'cosine',
+        embedding,
+        hybrid: opts.hybrid ? true : undefined,
+        metadata: parseJsonOption(opts.metadata, undefined),
+      });
+      await spin(ctx, 'Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
     });
-  datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin('Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
-  datasets.command('documents <id>').alias('docs').description('List retained dataset source documents').option('--limit <n>', 'Page size', parseInt).option('--cursor <cursor>', 'Cursor from next_cursor').option('--status <status>', 'Filter by document status').action(async (id, opts) => {
-    const ctx = await context(program.opts(), io); await spin('Listing documents', async () => show(ctx, await ctx.client.listDocuments(id, compact(opts))));
-  });
-  datasets.command('download-document <id> <document-id>').description('Download retained original document bytes').option('-o, --output <path>', 'Write downloaded bytes to file').action(async (id, documentId, opts) => {
-    const ctx = await context(program.opts(), io);
-    await spin('Downloading document', async () => {
-      const bytes = Buffer.from(await ctx.client.downloadDocument(id, documentId));
-      if (opts.output) { await writeFile(opts.output, bytes); console.log(chalk.green(`Wrote ${opts.output}`)); }
-      else process.stdout.write(bytes);
-    });
-  });
+  datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
+  datasets.command('stats <id>').description('Vector count and index status').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching stats', async () => show(ctx, await ctx.client.stats(id))); });
   datasets.command('delete <id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
-    const ctx = await context(program.opts(), io); await spin('Deleting dataset', async () => { await ctx.client.deleteDataset(id); console.log(chalk.green(`Deleted ${id}`)); });
+    const ctx = await context(program.opts(), io); await spin(ctx, 'Deleting dataset', async () => { await ctx.client.deleteDataset(id); print(ctx, { deleted: id }, chalk.green(`Deleted ${id}`)); });
   });
-  datasets.command('search <query...>').option('-k, --top-k <n>', 'Number of results', parseInt).option('--rerank', 'Enable VectorAmp reranking (VectorAmp-Rerank-v1)').option('--dataset <id>', 'Dataset id').action(async (query, opts) => {
-    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
-    await spin('Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, compact({ queryText: query.join(' '), topK: opts.topK, rerank: opts.rerank ? { enabled: true } : undefined }))));
-  });
+  datasets.command('search <query...>')
+    .description('Semantic or hybrid search. Use --vector for a raw vector query, --filter for metadata filters, --sparse for hybrid.')
+    .option('-k, --top-k <n>', 'Number of results (default 10)', parseInt)
+    .option('--rerank', 'Enable VectorAmp reranking (VectorAmp-Rerank-v1)')
+    .option('--filter <k=v...>', 'Metadata filter, repeatable (e.g. --filter team=support)', collectFilter, {})
+    .option('--vector <id-or-json>', 'Search by a raw float vector (JSON array) instead of text')
+    .option('--hybrid', 'Enable hybrid dense + sparse search')
+    .option('--sparse <text>', 'Sparse/keyword query for hybrid search (implies --hybrid)')
+    .option('--alpha <n>', 'Hybrid blend weight (0 sparse .. 1 dense)', parseFloat)
+    .option('--dataset <id>', 'Dataset id')
+    .action(async (query, opts) => {
+      const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
+      const queryInput = opts.vector ? parseVectorQuery(opts.vector) : query.join(' ');
+      const options: SearchOptions = compact({
+        topK: opts.topK,
+        rerank: opts.rerank ? true : undefined,
+        filters: Object.keys(opts.filter ?? {}).length ? opts.filter : undefined,
+        hybrid: opts.hybrid || opts.sparse ? true : undefined,
+        sparseQuery: opts.sparse,
+        alpha: opts.alpha,
+      }) as SearchOptions;
+      await spin(ctx, 'Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, queryInput, options)));
+    });
   datasets.command('add-texts <texts...>').option('--file <path>', 'Read one text payload from file').option('--metadata <json>', 'Metadata JSON').option('--dataset <id>', 'Dataset id').action(async (texts, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
     if (opts.file) texts.push(await (await import('node:fs/promises')).readFile(opts.file, 'utf8'));
-    await spin('Adding texts', async () => show(ctx, await ctx.client.addTexts(ctx.datasetId!, texts, parseJsonOption(opts.metadata, undefined))));
+    await spin(ctx, 'Adding texts', async () => show(ctx, await ctx.client.addTexts(ctx.datasetId!, texts, parseJsonOption(opts.metadata, undefined))));
   });
   datasets.command('ask <question...>').option('--stream', 'Stream output').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--dataset <id>', 'Dataset id').action(async (question, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx); await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
   });
-  datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').action(async (root, opts) => ingestFiles(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
+  datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').action(async (root, opts) => ingestFilesCommand(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
 
-  const sources = program.command('sources').description('Create ingestion sources');
-  for (const type of ['web', 's3', 'gcs', 'gdrive', 'confluence', 'jira', 'file_upload'] as const) {
-    sources.command(`${type} [uri]`).option('--name <name>').option('--config <json>').description(`Create ${type} source`).action(async (uri, opts) => {
-      const ctx = await context(program.opts(), io);
-      await spin(`Creating ${type} source`, async () => show(ctx, await ctx.client.createSource(compact({ sourceType: type, uri, name: opts.name, config: parseJsonOption(opts.config, undefined) }))));
+  // Dataset documents: `documents list <dataset>` / `documents download <dataset> <docId>`.
+  const documents = program.command('documents').alias('docs').description('List and download retained dataset source documents');
+  documents.command('list <dataset>').description('List retained dataset documents (cursor pagination)').option('--limit <n>', 'Page size', parseInt).option('--cursor <cursor>', 'Cursor from next_cursor').option('--status <status>', 'Filter by document status').action(async (dataset, opts) => {
+    const ctx = await context({ ...program.opts(), dataset }, io); await spin(ctx, 'Listing documents', async () => show(ctx, await ctx.client.listDocuments(dataset, compact(opts))));
+  });
+  documents.command('download <dataset> <document-id>').description('Download retained original document bytes').option('-o, --output <path>', 'Write downloaded bytes to file').action(async (dataset, documentId, opts) => {
+    const ctx = await context({ ...program.opts(), dataset }, io);
+    await spin(ctx, 'Downloading document', async () => {
+      const bytes = Buffer.from(await ctx.client.downloadDocument(dataset, documentId));
+      if (opts.output) { await writeFile(opts.output, bytes); print(ctx, { output: opts.output, bytes: bytes.length }, chalk.green(`Wrote ${opts.output}`)); }
+      else process.stdout.write(bytes);
     });
-  }
-  sources.command('ingest <type> <uri>').option('--dataset <id>').option('--config <json>').description('Create/use an inline source and start ingestion').action(async (type, uri, opts) => {
-    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
-    await spin('Starting source ingestion', async () => show(ctx, await ctx.client.ingestSource(ctx.datasetId!, compact({ sourceType: type, uri, config: parseJsonOption(opts.config, undefined) }))));
+  });
+  // Back-compat aliases under `datasets ...`.
+  datasets.command('documents <id>').alias('docs').description('List retained dataset source documents').option('--limit <n>', 'Page size', parseInt).option('--cursor <cursor>', 'Cursor from next_cursor').option('--status <status>', 'Filter by document status').action(async (id, opts) => {
+    const ctx = await context({ ...program.opts(), dataset: id }, io); await spin(ctx, 'Listing documents', async () => show(ctx, await ctx.client.listDocuments(id, compact(opts))));
+  });
+  datasets.command('download-document <id> <document-id>').description('Download retained original document bytes').option('-o, --output <path>', 'Write downloaded bytes to file').action(async (id, documentId, opts) => {
+    const ctx = await context({ ...program.opts(), dataset: id }, io);
+    await spin(ctx, 'Downloading document', async () => {
+      const bytes = Buffer.from(await ctx.client.downloadDocument(id, documentId));
+      if (opts.output) { await writeFile(opts.output, bytes); print(ctx, { output: opts.output, bytes: bytes.length }, chalk.green(`Wrote ${opts.output}`)); }
+      else process.stdout.write(bytes);
+    });
   });
 
+  // Raw vector operations.
+  const vectors = program.command('vectors').description('Insert and manage raw vectors');
+  vectors.command('insert')
+    .description('Insert raw vector records. Numeric ids stay numeric on the wire.')
+    .option('--dataset <id>', 'Dataset id')
+    .option('--id <id>', 'Vector id (string or integer; integers stay numbers)')
+    .option('--values <json>', 'Vector values as a JSON array')
+    .option('--metadata <json>', 'Metadata JSON')
+    .option('--vectors <json>', 'Insert a JSON array of {id,values,metadata} records')
+    .action(async (opts) => {
+      const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
+      const records: VectorRecord[] = opts.vectors
+        ? parseJsonOption<VectorRecord[]>(opts.vectors, [])
+        : [compact({ id: parseVectorId(opts.id), values: opts.values ? parseJsonOption<number[]>(opts.values, []) : undefined, metadata: parseJsonOption(opts.metadata, undefined) }) as VectorRecord];
+      if (!records.length || (!opts.vectors && opts.values === undefined)) throw new Error('Provide --values <json> or --vectors <json>.');
+      await spin(ctx, `Inserting ${records.length} vector(s)`, async () => show(ctx, await ctx.client.insert(ctx.datasetId!, records)));
+    });
+
+  const sources = program.command('sources').description('Create ingestion sources');
+  for (const type of SOURCE_TYPES) {
+    sources.command(`${type} [uri]`).option('--name <name>').option('--config <json>').description(`Create ${type} source`).action(async (uri, opts) => {
+      const ctx = await context(program.opts(), io);
+      await spin(ctx, `Creating ${type} source`, async () => show(ctx, await ctx.client.createSource(compact({ sourceType: type, config: buildSourceConfig(type, uri, opts.config), name: opts.name }) as any)));
+    });
+  }
+  sources.command('ingest <type> <uri>').option('--dataset <id>').option('--config <json>').option('--pipeline-id <id>').description('Create a source and start ingestion into the active dataset').action(async (type, uri, opts) => {
+    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
+    await spin(ctx, 'Starting source ingestion', async () => show(ctx, await ctx.client.ingestSource(ctx.datasetId!, compact({ sourceType: type, config: buildSourceConfig(type, uri, opts.config) }) as any, { pipelineId: opts.pipelineId })));
+  });
+  sources.command('list').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
+    const ctx = await context(program.opts(), io); await spin(ctx, 'Listing sources', async () => show(ctx, await ctx.client.listSources(compact(opts))));
+  });
+  sources.command('get <source-id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching source', async () => show(ctx, await ctx.client.getSource(id))); });
+
   const jobs = program.command('jobs').description('Manage ingestion jobs');
+  jobs.command('list').option('--dataset-id <id>', 'Filter by dataset').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
+    const ctx = await context(program.opts(), io); await spin(ctx, 'Listing jobs', async () => show(ctx, await ctx.client.listJobs(compact(opts))));
+  });
+  jobs.command('get <job-id>').description('Fetch ingestion job status; --poll waits for a terminal state').option('--poll', 'Poll until the job completes/fails').option('--interval <ms>', 'Poll interval in ms', parseInt).option('--timeout <ms>', 'Max time to poll in ms', parseInt).action(async (jobId, opts) => {
+    const ctx = await context(program.opts(), io);
+    if (opts.poll) {
+      const spinner = startSpinner(ctx, 'Polling job');
+      const job = await ctx.client.waitForJob(jobId, { intervalMs: opts.interval, timeoutMs: opts.timeout, onPoll: (j) => { if (spinner) spinner.text = `Polling job (${j.status ?? 'pending'})`; } });
+      if (spinner) spinner.stop();
+      show(ctx, job);
+    } else {
+      await spin(ctx, 'Fetching job', async () => show(ctx, await ctx.client.getJob(jobId)));
+    }
+  });
   jobs.command('retry <job-id>').description('Retry an eligible failed or cancelled ingestion job as a fresh full rerun').action(async (jobId) => {
     const ctx = await context(program.opts(), io);
-    await spin('Retrying ingestion job', async () => show(ctx, await ctx.client.retryJob(jobId)));
+    await spin(ctx, 'Retrying ingestion job', async () => show(ctx, await ctx.client.retryJob(jobId)));
   });
 
   const schedules = program.command('schedules').alias('schedule').description('Manage recurring ingestion schedules');
   schedules.command('list').option('--limit <n>', 'Page size', parseInt).option('--offset <n>', 'Offset', parseInt).action(async (opts) => {
     const ctx = await context(program.opts(), io);
-    await spin('Listing schedules', async () => show(ctx, await ctx.client.listSchedules(compact(opts))));
+    await spin(ctx, 'Listing schedules', async () => show(ctx, await ctx.client.listSchedules(compact(opts))));
   });
   schedules.command('get <schedule-id>').action(async (id) => {
     const ctx = await context(program.opts(), io);
-    await spin('Fetching schedule', async () => show(ctx, await ctx.client.getSchedule(id)));
+    await spin(ctx, 'Fetching schedule', async () => show(ctx, await ctx.client.getSchedule(id)));
   });
   schedules.command('create')
     .requiredOption('--source-id <id>', 'Ingestion source id to pull from')
@@ -126,7 +210,7 @@ export function buildProgram(io: CliIO = {}): Command {
         name: opts.name,
         metadata: parseJsonOption(opts.metadata, undefined),
       });
-      await spin('Creating schedule', async () => show(ctx, await ctx.client.createSchedule(body)));
+      await spin(ctx, 'Creating schedule', async () => show(ctx, await ctx.client.createSchedule(body)));
     });
   schedules.command('update <schedule-id>')
     .option('--cron <expr>', 'New cron expression')
@@ -149,16 +233,16 @@ export function buildProgram(io: CliIO = {}): Command {
       });
       if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
       const ctx = await context(program.opts(), io);
-      await spin('Updating schedule', async () => show(ctx, await ctx.client.updateSchedule(id, body)));
+      await spin(ctx, 'Updating schedule', async () => show(ctx, await ctx.client.updateSchedule(id, body)));
     });
   schedules.command('delete <schedule-id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
     const ctx = await context(program.opts(), io);
-    await spin('Deleting schedule', async () => show(ctx, await ctx.client.deleteSchedule(id)));
+    await spin(ctx, 'Deleting schedule', async () => show(ctx, await ctx.client.deleteSchedule(id)));
   });
   schedules.command('trigger <schedule-id>').description('Kick off an immediate run for the schedule, outside its cron cadence').action(async (id) => {
     const ctx = await context(program.opts(), io);
-    await spin('Triggering schedule', async () => show(ctx, await ctx.client.triggerSchedule(id)));
+    await spin(ctx, 'Triggering schedule', async () => show(ctx, await ctx.client.triggerSchedule(id)));
   });
 
   const configCmd = program.command('config').description('Manage local config');
@@ -173,6 +257,10 @@ export function buildProgram(io: CliIO = {}): Command {
   return program;
 }
 
+function isDefaultEmbedding(embedding: { provider: string; model: string }): boolean {
+  return embedding.provider === 'vectoramp' && embedding.model === 'VectorAmp-Embedding-4B';
+}
+
 function resolveEmbeddingOptions(opts: { openai?: string; embeddingProvider?: string; embeddingModel?: string }) {
   if (opts.openai) {
     if (opts.openai !== 'small' && opts.openai !== 'large') throw new Error('--openai must be "small" or "large"');
@@ -180,8 +268,51 @@ function resolveEmbeddingOptions(opts: { openai?: string; embeddingProvider?: st
   }
   return {
     provider: opts.embeddingProvider ?? 'vectoramp',
-    model: opts.embeddingModel ?? 'VectorAmp-Embedding-4B'
+    model: opts.embeddingModel ?? 'VectorAmp-Embedding-4B',
   };
+}
+
+/** Collect repeatable `--filter k=v` options into a record. */
+function collectFilter(value: string, previous: Record<string, unknown> = {}): Record<string, unknown> {
+  const eq = value.indexOf('=');
+  if (eq === -1) throw new Error(`Invalid --filter "${value}". Use key=value.`);
+  const key = value.slice(0, eq);
+  const raw = value.slice(eq + 1);
+  return { ...previous, [key]: coerceFilterValue(raw) };
+}
+
+function coerceFilterValue(raw: string): unknown {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (raw !== '' && !Number.isNaN(Number(raw))) return Number(raw);
+  return raw;
+}
+
+/** `--vector` accepts a JSON array of floats. */
+function parseVectorQuery(value: string): number[] {
+  const parsed = parseJsonOption<unknown>(value, undefined);
+  if (!Array.isArray(parsed) || parsed.some((n) => typeof n !== 'number')) {
+    throw new Error('--vector must be a JSON array of numbers, e.g. [0.1,0.2,0.3].');
+  }
+  return parsed as number[];
+}
+
+/** A vector id may be a string OR an integer; integers are preserved as numbers. */
+function parseVectorId(value: string | undefined): string | number | undefined {
+  if (value === undefined) return undefined;
+  if (/^-?\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+/** Merge a positional URI into the right config key for each source type. */
+function buildSourceConfig(type: string, uri: string | undefined, configJson: string | undefined): Record<string, unknown> {
+  const config = parseJsonOption<Record<string, unknown>>(configJson, {});
+  if (!uri) return config;
+  if (type === 'web') return { start_urls: [uri], ...config };
+  if (type === 's3' || type === 'gcs') return { bucket: uri.replace(/^s3:\/\/|^gs:\/\//, '').split('/')[0], ...config };
+  if (type === 'gdrive') return { folder_ids: [uri], ...config };
+  if (type === 'confluence' || type === 'jira') return { base_url: uri, ...config };
+  return { uri, ...config };
 }
 
 async function context(opts: GlobalOpts, io: CliIO) {
@@ -189,8 +320,15 @@ async function context(opts: GlobalOpts, io: CliIO) {
   return { config, client: new VectorAmpClient(config, io.fetch), json: Boolean(opts.json), datasetId: opts.dataset ?? config.datasetId };
 }
 async function requireDataset(ctx: { datasetId?: string }) { if (!ctx.datasetId) throw new Error('Dataset id required. Pass --dataset <id> or run `vectoramp config use <id>`.'); }
-async function spin<T>(text: string, fn: () => Promise<T>): Promise<T> { const spinner = ora(text).start(); try { const out = await fn(); spinner.succeed(); return out; } catch (e) { spinner.fail(); throw e; } }
-function show(ctx: { json: boolean }, value: unknown) { if (ctx.json) printJson(value); else printJson(value); }
+
+/** Spinners are noise in machine-readable (`--json`) mode, so suppress them. */
+function startSpinner(ctx: { json: boolean }, text: string) { return ctx.json ? undefined : ora(text).start(); }
+async function spin<T>(ctx: { json: boolean }, text: string, fn: () => Promise<T>): Promise<T> {
+  const spinner = startSpinner(ctx, text);
+  try { const out = await fn(); spinner?.succeed(); return out; } catch (e) { spinner?.fail(); throw e; }
+}
+function show(ctx: { json: boolean }, value: unknown) { printJson(value); }
+function print(ctx: { json: boolean }, jsonValue: unknown, human: string) { if (ctx.json) printJson(jsonValue); else console.log(human); }
 
 export interface ConversationTurn { role: 'user' | 'assistant' | 'system'; content: string }
 
@@ -208,11 +346,10 @@ async function ask(
   const body = compact({
     query: question,
     datasetId: ctx.datasetId,
-    includeSources: true,
     topK: opts.topK,
     conversationHistory: opts.conversationHistory?.length ? opts.conversationHistory : undefined,
   });
-  if (stream) {
+  if (stream && !ctx.json) {
     const spinner = ora('Asking VectorAmp').start();
     let wroteChunk = false;
     let answer = '';
@@ -233,7 +370,7 @@ async function ask(
       console.error(chalk.yellow(`Streaming unavailable, falling back: ${(error as Error).message}`));
     }
   }
-  const response = await spin('Asking VectorAmp', async () => ctx.client.ask({ ...body, stream: false }));
+  const response = await spin(ctx, 'Asking VectorAmp', async () => ctx.client.ask(body));
   showAsk(ctx, response);
   return response && typeof response === 'object' && typeof (response as any).answer === 'string'
     ? (response as any).answer
@@ -255,15 +392,15 @@ function renderAskStreamChunk(data: unknown): string {
   return chunk.content ?? chunk.delta ?? chunk.answer ?? '';
 }
 
-
-async function ingestFiles(ctx: Awaited<ReturnType<typeof context>>, root: string, opts: any) {
+async function ingestFilesCommand(ctx: Awaited<ReturnType<typeof context>>, root: string, opts: any) {
   await requireDataset(ctx);
-  const progress = new cliProgress.SingleBar({ format: 'Reading files |{bar}| {value} files' }, cliProgress.Presets.shades_classic);
-  progress.start(1, 0);
-  const files = await collectFiles(root, { extensions: opts.extensions?.split(','), maxBytesPerFile: opts.maxBytesPerFile, onFile: (_file, count) => { progress.setTotal(Math.max(count, 1)); progress.update(count); } });
-  progress.stop();
+  const useBar = !ctx.json;
+  const progress = useBar ? new cliProgress.SingleBar({ format: 'Reading files |{bar}| {value} files' }, cliProgress.Presets.shades_classic) : undefined;
+  progress?.start(1, 0);
+  const files: IngestFile[] = await collectFiles(root, { extensions: opts.extensions?.split(','), maxBytesPerFile: opts.maxBytesPerFile, onFile: (_file, count) => { progress?.setTotal(Math.max(count, 1)); progress?.update(count); } });
+  progress?.stop();
   if (!files.length) throw new Error('No ingestible text files found.');
-  await spin(`Uploading ${files.length} file(s)`, async () => show(ctx, await ctx.client.ingestFiles(ctx.datasetId!, compact({ root, files, sourceId: opts.sourceId, sourceName: opts.sourceName }))));
+  await spin(ctx, `Uploading ${files.length} file(s)`, async () => show(ctx, await ctx.client.ingestFiles(ctx.datasetId!, files, compact({ sourceId: opts.sourceId, sourceName: opts.sourceName }))));
 }
 
 export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
@@ -283,30 +420,41 @@ export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
   };
 
   while (true) {
-    const line = await terminal.readLine('VectorAmp');
+    const datasetLabel = ctx.datasetId ?? 'no dataset';
+    const line = await terminal.readLine(`VectorAmp:${datasetLabel}`);
     if (line === undefined) break;
     const trimmed = line.trim();
     const [rawCmd, ...args] = trimmed.split(/\s+/);
     const cmd = normalizeSlashCommand(rawCmd);
     try {
       if (!cmd || cmd === '') continue;
-      if (cmd === '/exit' || cmd === '/quit') break;
+      if (cmd === '/exit') break;
       if (cmd === '/help') console.log(commandHelp());
+      else if (cmd === '/context' || cmd === '/status') console.log(renderBanner({ cwd: process.cwd(), datasetId: ctx.datasetId }));
       else if (cmd === '/datasets') {
-        const response = await spin('Fetching datasets', () => ctx.client.listDatasets({ limit: 50, offset: 0 }));
+        const response = await spin(ctx, 'Fetching datasets', () => ctx.client.listDatasets({ limit: 50, offset: 0 }));
         const choice = await terminal.pickDataset(extractDatasets(response), args.join(' '));
         if (!choice) { console.log(chalk.yellow('No dataset selected.')); continue; }
         await writeConfig({ ...(await readConfig()), datasetId: choice.id });
         ctx = await context({ ...initial, dataset: choice.id }, io);
-        console.log(chalk.green(`Using ${choice.name ? `${choice.name} (${choice.id})` : choice.id}`));
+        history.length = 0;
+        console.log(chalk.green(`Using ${choice.name ? `${choice.name} (${choice.id})` : choice.id}. Conversation reset.`));
+      }
+      else if (cmd === '/use') {
+        // `/use <id>` switches dataset directly without the picker.
+        if (!args[0]) { console.log(chalk.yellow('Usage: /use <dataset-id>')); continue; }
+        await writeConfig({ ...(await readConfig()), datasetId: args[0] });
+        ctx = await context({ ...initial, dataset: args[0] }, io);
+        history.length = 0;
+        console.log(chalk.green(`Using ${args[0]}. Conversation reset.`));
       }
       else if (cmd === '/config') printJson(await readConfig());
-      else if (cmd === '/search') { await requireDataset(ctx); show(ctx, await ctx.client.search(ctx.datasetId!, { queryText: args.join(' ') })); }
+      else if (cmd === '/search') { await requireDataset(ctx); show(ctx, await ctx.client.search(ctx.datasetId!, args.join(' '))); }
       else if (cmd === '/add-texts') { await requireDataset(ctx); show(ctx, await ctx.client.addTexts(ctx.datasetId!, [args.join(' ')])); }
-      else if (cmd === '/ingest-files') await ingestFiles(ctx, args[0], {});
+      else if (cmd === '/ingest-files') { if (!args[0]) { console.log(chalk.yellow('Usage: /ingest-files <path>')); continue; } await ingestFilesCommand(ctx, args[0], {}); }
       else if (cmd === '/reset' || cmd === '/new') { history.length = 0; console.log(chalk.green('Conversation history cleared.')); }
       else if (cmd === '/ask') await askTurn(args.join(' '));
-      else if (cmd === '/sources') show(ctx, await ctx.client.createSource({ sourceType: args[0], uri: args[1] }));
+      else if (cmd === '/sources') show(ctx, await ctx.client.createSource(compact({ sourceType: args[0], config: buildSourceConfig(args[0], args[1], undefined) }) as any));
       else if (!cmd.startsWith('/')) await askTurn(trimmed);
       else console.log(chalk.red(`Unknown command ${cmd}. Try /help.`));
     } catch (error) { console.error(chalk.red((error as Error).message)); }
