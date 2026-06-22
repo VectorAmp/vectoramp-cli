@@ -67,7 +67,7 @@ export function buildProgram(io: CliIO = {}): Command {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
     const ctx = await context(program.opts(), io); await spin(ctx, 'Deleting dataset', async () => { await ctx.client.deleteDataset(id); print(ctx, { deleted: id }, chalk.green(`Deleted ${id}`)); });
   });
-  datasets.command('search <query...>')
+  datasets.command('search [query...]')
     .description('Semantic or hybrid search. Use --vector for a raw vector query, --filter for metadata filters, --sparse for hybrid.')
     .option('-k, --top-k <n>', 'Number of results (default 10)', parseInt)
     .option('--rerank', 'Enable VectorAmp reranking (VectorAmp-Rerank-v1)')
@@ -77,9 +77,11 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--sparse <text>', 'Sparse/keyword query for hybrid search (implies --hybrid)')
     .option('--alpha <n>', 'Hybrid blend weight (0 sparse .. 1 dense)', parseFloat)
     .option('--dataset <id>', 'Dataset id')
-    .action(async (query, opts) => {
+    .action(async (query: string[] = [], opts) => {
       const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
-      const queryInput = opts.vector ? parseVectorQuery(opts.vector) : query.join(' ');
+      const text = query.join(' ').trim();
+      if (!opts.vector && !text) throw new Error('Provide a text query, or --vector <json> for a raw vector search.');
+      const queryInput = opts.vector ? parseVectorQuery(opts.vector) : text;
       const options: SearchOptions = compact({
         topK: opts.topK,
         rerank: opts.rerank ? true : undefined,
