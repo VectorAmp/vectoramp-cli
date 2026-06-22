@@ -114,11 +114,20 @@ it('searches with --filter, --sparse hybrid, and --rerank', async () => {
   });
 });
 
-it('searches by a raw vector with --vector', async () => {
+it('searches by a raw vector with --vector and no positional query', async () => {
   const calls: any[] = [];
   const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return new Response(JSON.stringify({ results: [] }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
-  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search', 'ignored', '--vector', '[0.1,0.2,0.3]']);
+  // No positional query — `search` must accept a raw vector on its own (regression: the
+  // positional was required, which broke `datasets search --vector ...`).
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search', '--vector', '[0.1,0.2,0.3]']);
   expect(JSON.parse(calls[0].body as string)).toMatchObject({ query: [0.1, 0.2, 0.3] });
+});
+
+it('errors clearly when search has neither a query nor --vector', async () => {
+  const fetch = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
+  await expect(
+    buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search']),
+  ).rejects.toThrow(/Provide a text query/);
 });
 
 it('lists and downloads documents via the documents subcommands', async () => {
