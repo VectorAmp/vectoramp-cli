@@ -89,6 +89,10 @@ export function buildProgram(io: CliIO = {}): Command {
         hybrid: opts.hybrid || opts.sparse ? true : undefined,
         sparseQuery: opts.sparse,
         alpha: opts.alpha,
+        // Return the matched text + metadata so results are useful (and so the
+        // document text comes back; metadata-only can lag the document store).
+        includeMetadata: true,
+        includeDocuments: true,
       }) as SearchOptions;
       await spin(ctx, 'Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, queryInput, options)));
     });
