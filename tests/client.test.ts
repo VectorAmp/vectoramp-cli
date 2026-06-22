@@ -168,7 +168,7 @@ describe('VectorAmpClient', () => {
     expect(calls.some((c) => String(c.url).includes('/ingestions/'))).toBe(false);
   });
 
-  it('ingestFiles runs the presigned upload flow then starts a job', async () => {
+  it('ingestFiles runs the presigned upload flow and returns the upload job (no separate job start)', async () => {
     const calls: any[] = [];
     const fetch = (async (url: string, init: RequestInit) => {
       calls.push({ url, method: init.method, body: init.body });
@@ -180,15 +180,19 @@ describe('VectorAmpClient', () => {
     }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
     const result = await client.ingestFiles('ds_1', [{ path: 'a.md', content: '# hello' }], { sourceName: 'docs-upload' });
-    expect(result).toMatchObject({ job_id: 'job_up' });
+    // The upload flow already creates/runs the job; we return that job, not a new one.
+    expect(result).toMatchObject({ job_id: 'up_1', source_id: 'src_up' });
     const urls = calls.map((c) => c.url);
     expect(urls[0]).toBe('https://api.example.com/ingestion/sources');
+    // file_upload source carries metadata.dataset_id so the upload handler finds it.
+    expect(JSON.parse(calls[0].body as string)).toMatchObject({ metadata: { dataset_id: 'ds_1' } });
     expect(urls[1]).toBe('https://api.example.com/ingestion/sources/src_up/upload/init');
     expect(urls[2]).toBe('https://s3.example.com/put/f1');
     expect(calls[2].method).toBe('PUT');
     expect(urls[3]).toBe('https://api.example.com/ingestion/sources/src_up/upload/complete');
     expect(JSON.parse(calls[3].body as string)).toEqual({ job_id: 'up_1', file_ids: ['f1'] });
-    expect(urls[4]).toBe('https://api.example.com/ingestion/jobs');
+    // No separate /ingestion/jobs start, and no phantom /ingestions/ paths.
+    expect(calls.some((c) => String(c.url).endsWith('/ingestion/jobs'))).toBe(false);
     expect(calls.some((c) => String(c.url).includes('/ingestions/'))).toBe(false);
   });
 

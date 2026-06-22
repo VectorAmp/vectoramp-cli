@@ -216,7 +216,10 @@ export class VectorAmpClient {
     let sourceId = options.sourceId;
     if (!sourceId) {
       const name = options.sourceName ?? `cli-upload-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}`;
-      const created = await this.createSource({ sourceType: 'file_upload', name, config: {} });
+      // The presigned upload handler resolves the target dataset from the
+      // source's metadata.dataset_id; without it the upload init returns
+      // "file upload source not found".
+      const created = await this.createSource({ sourceType: 'file_upload', name, config: {}, metadata: { dataset_id: id } });
       sourceId = created.id;
       if (!sourceId) throw new Error('file_upload source creation did not return an id.');
     }
@@ -230,8 +233,12 @@ export class VectorAmpClient {
       const res = await this.fetchImpl(uploads[i].upload_url, { method: 'PUT', headers: { 'Content-Type': contentType(files[i].path) }, body: files[i].content });
       if (!res.ok) throw new VectorAmpApiError(`Upload failed for ${files[i].path}: ${res.status} ${res.statusText}`, res.status);
     }
-    await this.request('POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/complete`, { body: { job_id: init.job_id, file_ids: uploads.map((upload) => upload.file_id) } });
-    return this.startJob({ sourceId, datasetId: id, pipelineId: options.pipelineId });
+    const complete = await this.request<Record<string, unknown>>('POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/complete`, { body: { job_id: init.job_id, file_ids: uploads.map((upload) => upload.file_id) } });
+    // The presigned upload flow already creates and runs the ingestion job, so
+    // we return that job. Do NOT start a second job via POST /ingestion/jobs:
+    // a file_upload source is not separately crawlable and that job fails with
+    // "Unsupported source type: file_upload".
+    return { job_id: init.job_id, source_id: sourceId, ...(complete && typeof complete === 'object' ? complete : {}) };
   }
 
   // ---- Schedules -----------------------------------------------------------
