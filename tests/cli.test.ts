@@ -38,19 +38,147 @@ it('runs dataset document listing with cursor params', async () => {
   expect(logs.join('\n')).toContain('doc_1');
 });
 
-it('creates OpenAI embedding datasets with inferred dimension', async () => {
+it('creates OpenAI embedding datasets with inferred dim', async () => {
   const calls: any[] = [];
   const fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
     return new Response(JSON.stringify({ id: 'ds_openai' }), { headers: { 'content-type': 'application/json' }, status: 201 });
   }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'docs', '--openai', 'small']);
-  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+  const body = JSON.parse(calls[0].init.body as string);
+  expect(body).toMatchObject({
     name: 'docs',
-    dimension: 1536,
+    dim: 1536,
+    metric: 'cosine',
     embedding: { provider: 'openai', model: 'text-embedding-3-small' },
     index_type: 'sable'
   });
+  // The deprecated `dimension` field is never sent.
+  expect(body.dimension).toBeUndefined();
+});
+
+it('creates a dataset from a name only with VectorAmp defaults', async () => {
+  const calls: any[] = [];
+  const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return new Response(JSON.stringify({ id: 'ds_min' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'docs']);
+  expect(JSON.parse(calls[0].body as string)).toMatchObject({
+    name: 'docs',
+    dim: 2560,
+    metric: 'cosine',
+    embedding: { provider: 'vectoramp', model: 'VectorAmp-Embedding-4B' },
+    index_type: 'sable',
+  });
+});
+
+it('creates a hybrid dataset with --hybrid', async () => {
+  const calls: any[] = [];
+  const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return new Response(JSON.stringify({ id: 'ds_h' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'docs', '--hybrid', '--dim', '768', '--metric', 'dot']);
+  expect(JSON.parse(calls[0].body as string)).toMatchObject({ name: 'docs', dim: 768, metric: 'dot', hybrid: true, index_type: 'sable' });
+});
+
+it('requires --dim for custom embedding models', async () => {
+  const fetch = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
+  await expect(
+    buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'docs', '--embedding-provider', 'cohere', '--embedding-model', 'embed-v3'])
+  ).rejects.toThrow(/dimension required/i);
+});
+
+it('inserts raw vectors with a numeric id preserved as a number', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ inserted: 1 }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'vectors', 'insert', '--id', '42', '--values', '[0.1,0.2]', '--metadata', '{"k":"v"}']);
+  expect(calls[0].url).toBe('https://api.test/datasets/ds_1/insert');
+  const raw = calls[0].init.body as string;
+  expect(raw).toContain('"id":42');
+  expect(raw).not.toContain('"id":"42"');
+  expect(JSON.parse(raw)).toEqual({ vectors: [{ id: 42, values: [0.1, 0.2], metadata: { k: 'v' } }] });
+});
+
+it('searches with --filter, --sparse hybrid, and --rerank', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ results: [] }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search', 'refund policy',
+    '--filter', 'team=support', '--filter', 'priority=2', '--sparse', 'refund', '--alpha', '0.4', '--rerank', '--top-k', '5',
+  ]);
+  expect(calls[0].url).toBe('https://api.test/datasets/ds_1/search');
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    query_text: 'refund policy',
+    top_k: 5,
+    filters: { team: 'support', priority: 2 },
+    hybrid: true,
+    sparse_query: 'refund',
+    alpha: 0.4,
+    rerank: { enabled: true, model: 'VectorAmp-Rerank-v1' },
+  });
+});
+
+it('searches by a raw vector with --vector', async () => {
+  const calls: any[] = [];
+  const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return new Response(JSON.stringify({ results: [] }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search', 'ignored', '--vector', '[0.1,0.2,0.3]']);
+  expect(JSON.parse(calls[0].body as string)).toMatchObject({ query: [0.1, 0.2, 0.3] });
+});
+
+it('lists and downloads documents via the documents subcommands', async () => {
+  const calls: any[] = [];
+  const bytes = new Uint8Array([1, 2, 3]);
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    if (String(url).endsWith('/download')) return new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } });
+    return new Response(JSON.stringify({ documents: [{ id: 'doc_1' }], next_cursor: 'cur2' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  const out = join(configDir, 'doc.bin');
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'documents', 'list', 'ds_1', '--limit', '2', '--status', 'ready']);
+  expect(calls[0].url).toBe('https://api.test/datasets/ds_1/documents?limit=2&status=ready');
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'documents', 'download', 'ds_1', 'doc_1', '--output', out]);
+  expect(calls[1].url).toBe('https://api.test/datasets/ds_1/documents/doc_1/download');
+});
+
+it('creates a confluence source with cloud id config', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ id: 'src_conf' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'sources', 'confluence', 'https://acme.atlassian.net', '--config', '{"spaces":["ENG"]}', '--name', 'wiki']);
+  expect(calls[0].url).toBe('https://api.test/ingestion/sources');
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    source_type: 'confluence',
+    name: 'wiki',
+    config: { base_url: 'https://acme.atlassian.net', spaces: ['ENG'] },
+  });
+});
+
+it('starts ingestion from a source via the real create-source + jobs flow', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    if (String(url).endsWith('/ingestion/sources')) return new Response(JSON.stringify({ id: 'src_w' }), { headers: { 'content-type': 'application/json' }, status: 201 });
+    return new Response(JSON.stringify({ job_id: 'job_1', status: 'pending' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'sources', 'ingest', 'web', 'https://docs.example.com']);
+  expect(calls[0].url).toBe('https://api.test/ingestion/sources');
+  expect(calls[1].url).toBe('https://api.test/ingestion/jobs');
+  expect(JSON.parse(calls[1].init.body as string)).toEqual({ source_id: 'src_w', dataset_id: 'ds_1' });
+  expect(calls.some((c) => String(c.url).includes('/ingestions/'))).toBe(false);
+});
+
+it('gets a job and polls until terminal with jobs get --poll', async () => {
+  const calls: any[] = [];
+  const statuses = ['running', 'completed'];
+  let i = 0;
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ job_id: 'job_1', status: statuses[Math.min(i++, statuses.length - 1)] }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--json', 'jobs', 'get', 'job_1', '--poll', '--interval', '1', '--timeout', '1000']);
+  expect(calls[0].url).toBe('https://api.test/ingestion/jobs/job_1');
+  expect(logs.join('\n')).toContain('completed');
+});
+
+it('emits machine-readable JSON without spinner noise under --json', async () => {
+  const fetch = (async () => new Response(JSON.stringify({ datasets: [{ id: 'ds_1' }] }), { headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--json', 'datasets', 'list']);
+  expect(JSON.parse(logs.join('\n'))).toEqual({ datasets: [{ id: 'ds_1' }] });
 });
 
 it('stores default dataset via config use', async () => {
@@ -177,4 +305,27 @@ it('interactive REPL accumulates and sends multi-turn conversation history', asy
     { role: 'user', content: 'first question' },
     { role: 'assistant', content: 'answer-1' }
   ]);
+});
+
+it('interactive /use switches the active dataset and resets history before asking', async () => {
+  const bodies: any[] = [];
+  const sse = (answer: string) => {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({ start(c) { c.enqueue(enc.encode(`data: {"chunk_type":"text","content":${JSON.stringify(answer)}}\n\n`)); c.enqueue(enc.encode('data: {"chunk_type":"done"}\n\n')); c.close(); } });
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  const fetch = (async (url: string, init: RequestInit) => { bodies.push({ url, body: init?.body ? JSON.parse(init.body as string) : null }); return sse('ok'); }) as unknown as typeof globalThis.fetch;
+
+  const lines: (string | undefined)[] = ['/use ds_target', 'after switch?', undefined];
+  let i = 0;
+  vi.spyOn(InteractiveTerminal.prototype, 'readLine').mockImplementation(async () => lines[i++]);
+  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+  await interactive({ fetch }, { baseUrl: 'https://api.test', dataset: 'ds_start', history: 10 });
+
+  const asks = bodies.filter((b) => String(b.url).endsWith('/intelligence/query'));
+  expect(asks).toHaveLength(1);
+  // The question after /use must target the switched dataset, with no leftover history.
+  expect(asks[0].body).toMatchObject({ query: 'after switch?', dataset_id: 'ds_target' });
+  expect(asks[0].body.conversation_history).toBeUndefined();
 });

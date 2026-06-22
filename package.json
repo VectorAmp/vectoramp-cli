@@ -11,7 +11,8 @@
     "dist",
     "scripts/install.sh",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "engines": { "node": ">=18" },
   "scripts": {
@@ -22,11 +23,11 @@
     "prepack": "npm run build"
   },
   "keywords": ["vectoramp", "cli", "sable", "rag", "vector-database"],
-  "author": "VectorAmp",
-  "license": "UNLICENSED",
-  "repository": { "type": "git", "url": "git+ssh://git@gitlab.com/VectorAmp/SDK/CLI.git" },
-  "bugs": { "url": "https://gitlab.com/VectorAmp/SDK/CLI/-/issues" },
-  "homepage": "https://vectoramp.com",
+  "author": "VectorAmp, Inc.",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "git+https://github.com/vectoramp/vectoramp-cli.git" },
+  "bugs": { "url": "https://github.com/vectoramp/vectoramp-cli/issues" },
+  "homepage": "https://github.com/vectoramp/vectoramp-cli#readme",
   "dependencies": {
     "chalk": "^5.4.1",
     "cli-progress": "^3.12.0",
