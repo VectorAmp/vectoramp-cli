@@ -1,3 +1,13 @@
+<div align="center">
+  <a href="https://vectoramp.com/">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset=".github/images/logo-full-light.svg">
+      <source media="(prefers-color-scheme: dark)" srcset=".github/images/logo-full-dark.svg">
+      <img alt="VectorAmp Logo" src=".github/images/logo-full-dark.svg" width="50%">
+    </picture>
+  </a>
+</div>
+
 # VectorAmp CLI
 
 Official command-line interface for VectorAmp datasets, ingestion, semantic search, and Intelligence (RAG).
