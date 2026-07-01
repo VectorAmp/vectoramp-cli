@@ -9,7 +9,6 @@
 </div>
 
 <div align="center">
-  <br/>
   <h3>FILTER-NATIVE · DATA INTELLIGENCE</h3>
 </div>
 
