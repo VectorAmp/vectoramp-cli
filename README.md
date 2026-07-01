@@ -8,10 +8,6 @@
   </a>
 </div>
 
-<div align="center">
-  <h3 style="color: #3789dd">FILTER-NATIVE · DATA INTELLIGENCE</h3>
-</div>
-
 # VectorAmp CLI
 
 Official command-line interface for VectorAmp datasets, ingestion, semantic search, and Intelligence (RAG).
