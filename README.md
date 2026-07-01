@@ -9,7 +9,7 @@
 </div>
 
 <div align="center">
-  <h3>FILTER-NATIVE · DATA INTELLIGENCE</h3>
+  <h3 style="font-color: #3789dd">FILTER-NATIVE · DATA INTELLIGENCE</h3>
 </div>
 
 # VectorAmp CLI
