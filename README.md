@@ -8,6 +8,10 @@
   </a>
 </div>
 
+<div align="center">
+  <h3>The Filter-Native Vector Database & Data Intelligence Platform</h3>
+</div>
+
 # VectorAmp CLI
 
 Official command-line interface for VectorAmp datasets, ingestion, semantic search, and Intelligence (RAG).
