@@ -9,7 +9,8 @@
 </div>
 
 <div align="center">
-  <h3 style="margin-top: 15px">The Filter-Native Vector Database & Data Intelligence Platform</h3>
+  <br/>
+  <h3>FILTER-NATIVE · DATA INTELLIGENCE</h3>
 </div>
 
 # VectorAmp CLI
