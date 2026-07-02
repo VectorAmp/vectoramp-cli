@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE="${VECTORAMP_CLI_PACKAGE:-@vectoramp/cli}"
+PACKAGE="${VECTORAMP_CLI_PACKAGE:-@vectorampdb/cli}"
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm is required to install VectorAmp CLI. Install Node.js 18+ first." >&2
   exit 1
