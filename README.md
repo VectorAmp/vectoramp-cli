@@ -75,12 +75,14 @@ vectoramp ask "Summarize this dataset" --stream
 ```bash
 vectoramp datasets list --limit 50
 
-# Minimal create (defaults: VectorAmp-Embedding-4B / dim 2560 / cosine / sable)
+# Minimal create: omit embedding flags to use VectorAmp's managed default
+# (VectorAmp-Embedding-4B / dim 2560 / cosine / SABLE).
 vectoramp datasets create docs
 
-# Fine-grained create
-vectoramp datasets create docs --openai small --metadata '{"team":"support"}'
-vectoramp datasets create docs --embedding-provider cohere --embedding-model embed-v3 --dim 1024
+# Optional BYOM examples when you intentionally want a non-default embedding model.
+# OpenAI dimensions are inferred (small = 1536, large = 3072).
+vectoramp datasets create openai-docs --openai small --metadata '{"team":"support"}'
+vectoramp datasets create custom-docs --embedding-provider cohere --embedding-model embed-v3 --dim 1024
 vectoramp datasets create docs --hybrid           # enable dense + sparse hybrid search
 vectoramp datasets create docs --dim 768 --metric dot
 
@@ -89,7 +91,7 @@ vectoramp datasets stats ds_123
 vectoramp datasets delete ds_123 --yes
 ```
 
-`index_type` is always forced to `sable` and is never accepted from the caller. The create body uses the `dim` field (not `dimension`).
+`index_type` is always forced to `sable` and is never accepted from the caller. The create body uses the `dim` field (not `dimension`). For most datasets, omit embedding flags and use the managed VectorAmp embedding model.
 
 ## Search
 
