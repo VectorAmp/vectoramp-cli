@@ -1,5 +1,5 @@
 {
-  "name": "@vectorampdb/cli",
+  "name": "@vectoramp/cli",
   "version": "0.1.0",
   "description": "Command-line interface for VectorAmp datasets, ingestion, search, and Intelligence.",
   "type": "module",

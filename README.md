@@ -22,7 +22,7 @@ Official command-line interface for VectorAmp datasets, ingestion, semantic sear
 ## Install
 
 ```bash
-npm install -g @vectorampdb/cli
+npm install -g @vectoramp/cli
 ```
 
 One-command installer:
@@ -233,7 +233,7 @@ The Intelligence API is stateless, so follow-up questions need prior turns sent 
 The package also exports a typed client for embedding the same behavior in scripts:
 
 ```ts
-import { VectorAmpClient, confluenceSource } from '@vectorampdb/cli';
+import { VectorAmpClient, confluenceSource } from '@vectoramp/cli';
 
 const client = new VectorAmpClient({ apiKey: process.env.VECTORAMP_API_KEY!, baseUrl: 'https://api.vectoramp.com', apiPrefix: '' });
 
@@ -268,7 +268,7 @@ await client.ingestSource(dataset.id, confluenceSource({ cloudId: 'cid', spaces:
 | `ask(body)` / `askStream(body)` | `body.query` | `datasetId` ("all"), `topK` (5), `includeSources` (true), `conversationHistory` |
 | `createSession / listSessions / getSession / deleteSession / appendMessage / listMessages` | per signature | — |
 
-Source helpers (`@vectorampdb/cli`): `webSource`, `s3Source`, `gcsSource`, `googleDriveSource`, `jiraSource`, `confluenceSource`, `fileUploadSource`, and the generic `source({ sourceType, config })` escape hatch.
+Source helpers (`@vectoramp/cli`): `webSource`, `s3Source`, `gcsSource`, `googleDriveSource`, `jiraSource`, `confluenceSource`, `fileUploadSource`, and the generic `source({ sourceType, config })` escape hatch.
 
 ## Development
 
