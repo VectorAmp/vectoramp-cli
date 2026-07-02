@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/vectoramp/vectoramp-cli/main/script
 From source:
 
 ```bash
-git clone https://github.com/vectoramp/vectoramp-cli.git
+git clone https://github.com/VectorAmp/vectoramp-cli.git
 cd vectoramp-cli
 npm ci
 npm run build

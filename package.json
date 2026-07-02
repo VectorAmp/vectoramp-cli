@@ -35,12 +35,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vectoramp/vectoramp-cli.git"
+    "url": "git+https://github.com/VectorAmp/vectoramp-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/vectoramp/vectoramp-cli/issues"
+    "url": "https://github.com/VectorAmp/vectoramp-cli/issues"
   },
-  "homepage": "https://github.com/vectoramp/vectoramp-cli#readme",
+  "homepage": "https://github.com/VectorAmp/vectoramp-cli#readme",
   "dependencies": {
     "chalk": "^5.4.1",
     "cli-progress": "^3.12.0",
