@@ -53,12 +53,16 @@ describe('VectorAmpClient', () => {
     const calls: any[] = [];
     const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return json({ results: [] }); }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
-    await client.search('ds', 'refunds', { filters: { team: 'support' }, hybrid: true, sparseQuery: 'refund', alpha: 0.5, rerank: true });
+    await client.search('ds', 'refunds', { filters: { source_type: 'web', priority: 2, sourceType: 'crawler' }, hybrid: true, sparseQuery: 'refund', alpha: 0.5, rerank: true });
     const body = JSON.parse(calls[0].body as string);
     expect(body).toMatchObject({
       query_text: 'refunds',
       top_k: 10,
-      filters: { team: 'support' },
+      advanced_filters: [
+        { field: 'source_type', op: 'eq', value: 'web' },
+        { field: 'priority', op: 'eq', value: 2 },
+        { field: 'sourceType', op: 'eq', value: 'crawler' },
+      ],
       hybrid: true,
       sparse_query: 'refund',
       alpha: 0.5,

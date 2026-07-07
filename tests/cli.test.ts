@@ -100,13 +100,13 @@ it('searches with --filter, --sparse hybrid, and --rerank', async () => {
   const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ results: [] }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync([
     'node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'datasets', 'search', 'refund policy',
-    '--filter', 'team=support', '--filter', 'priority=2', '--sparse', 'refund', '--alpha', '0.4', '--rerank', '--top-k', '5',
+    '--filter', 'source_type=web', '--filter', 'priority=2', '--sparse', 'refund', '--alpha', '0.4', '--rerank', '--top-k', '5',
   ]);
   expect(calls[0].url).toBe('https://api.test/datasets/ds_1/search');
   expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
     query_text: 'refund policy',
     top_k: 5,
-    filters: { team: 'support', priority: 2 },
+    advanced_filters: [{ field: 'source_type', op: 'eq', value: 'web' }, { field: 'priority', op: 'eq', value: 2 }],
     hybrid: true,
     sparse_query: 'refund',
     alpha: 0.4,
