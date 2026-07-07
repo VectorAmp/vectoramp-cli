@@ -137,7 +137,16 @@ export class VectorAmpClient {
    * full rerank object; hybrid accepts `sparse_query`/`alpha`. */
   search(id: string, query: string | number[] | Record<string, unknown>, options: SearchOptions = {}) {
     const body = buildSearchBody(query, options);
-    return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/search`, { body: toSnakeCasePayload(body) });
+    const { filters, advancedFilters, advanced_filters, ...rest } = body;
+    const filterPredicates = simpleFiltersToAdvanced(filters);
+    const combinedAdvancedFilters = [
+      ...filterPredicates,
+      ...normalizeAdvancedFilters(advancedFilters),
+      ...normalizeAdvancedFilters(advanced_filters),
+    ];
+    const payload = toSnakeCasePayload(rest) as Record<string, unknown>;
+    if (combinedAdvancedFilters.length) payload.advanced_filters = combinedAdvancedFilters;
+    return this.request<unknown>('POST', `/datasets/${encodeURIComponent(id)}/search`, { body: payload });
   }
 
   embed(id: string, input: string | string[], options: Record<string, unknown> = {}) {
@@ -294,6 +303,17 @@ function normalizeVector(record: VectorRecord): Record<string, unknown> {
   if (resolvedValues !== undefined) out.values = resolvedValues;
   if (metadata !== undefined) out.metadata = metadata;
   return out;
+}
+
+function simpleFiltersToAdvanced(filters: unknown): Array<Record<string, unknown>> {
+  if (!filters || Array.isArray(filters) || typeof filters !== 'object') return [];
+  return Object.entries(filters as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([field, value]) => ({ field, op: 'eq', value }));
+}
+
+function normalizeAdvancedFilters(filters: unknown): unknown[] {
+  return Array.isArray(filters) ? filters : [];
 }
 
 function applyAskDefaults(body: Record<string, unknown>, stream: boolean): Record<string, unknown> {
