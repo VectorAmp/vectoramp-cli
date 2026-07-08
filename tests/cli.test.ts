@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildProgram, interactive } from '../src/commands.js';
 import { InteractiveTerminal } from '../src/interactive-ui.js';
 
+const stripAnsi = (value: string) => value.replace(/\u001b\[[0-9;]*m/g, '');
+
 let configDir: string;
 let logs: string[];
 
@@ -259,12 +261,12 @@ it('runs one-off ask with public intelligence payload', async () => {
   const calls: any[] = [];
   const fetch = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
-    return new Response(JSON.stringify({ answer: 'dogs found' }), { headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify({ answer: '**Dogs found**\n\n- `photo-1`' }), { headers: { 'content-type': 'application/json' } });
   }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', 'Do I have any pictures of dogs?']);
   expect(calls[0].url).toBe('https://api.test/intelligence/query');
   expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'Do I have any pictures of dogs?', dataset_id: 'ds_123', include_sources: true, stream: false });
-  expect(logs.join('\n')).toContain('dogs found');
+  expect(stripAnsi(logs.join('\n'))).toContain('Dogs found\n\n• photo-1');
 });
 
 it('one-off ask forwards --top-k', async () => {
@@ -275,6 +277,59 @@ it('one-off ask forwards --top-k', async () => {
   }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', '--top-k', '12', 'hello?']);
   expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'hello?', top_k: 12 });
+});
+
+it('renders one-off ask markdown for terminals', async () => {
+  const fetch = (async () => new Response(JSON.stringify({ answer: '**Summary**\n- use `dogs`\n```txt\nhello\n```' }), { headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', 'format?']);
+  const output = logs.join('\n').replace(/\u001b\[[0-9;]*m/g, '');
+  expect(output).toContain('Summary');
+  expect(output).toContain('• use dogs');
+  expect(output).toContain('│ hello');
+  expect(output).not.toContain('**Summary**');
+  expect(output).not.toContain('```');
+});
+
+it('interactive ask renders streamed markdown for terminals before the stream completes', async () => {
+  const writes: string[] = [];
+  let writesBeforeDone = 0;
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(enc.encode('data: {"chunk_type":"text","content":"**Summary**\\n- use `dogs`\\n```txt\\n"}\n\n'));
+      setTimeout(() => {
+        c.enqueue(enc.encode('data: {"chunk_type":"text","content":"hello\\n```"}\n\n'));
+        const finishWhenWritten = (attempt = 0) => {
+          if (writes.length > 1 || attempt > 20) {
+            writesBeforeDone = writes.length;
+            c.enqueue(enc.encode('data: {"chunk_type":"done"}\n\n'));
+            c.close();
+            return;
+          }
+          setTimeout(() => finishWhenWritten(attempt + 1), 1);
+        };
+        finishWhenWritten();
+      }, 0);
+    }
+  });
+  const fetch = (async () => new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })) as unknown as typeof globalThis.fetch;
+
+  const lines: (string | undefined)[] = ['format?', undefined];
+  let i = 0;
+  vi.spyOn(InteractiveTerminal.prototype, 'readLine').mockImplementation(async () => lines[i++]);
+  vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => { writes.push(String(chunk)); return true; });
+
+  await interactive({ fetch }, { baseUrl: 'https://api.test', dataset: 'ds_1', history: 10 });
+
+  const output = writes.join('').replace(/\u001b\[[0-9;]*m/g, '');
+  expect(writesBeforeDone).toBeGreaterThan(1);
+  expect(output).toContain('Summary');
+  expect(output).toContain('• use dogs');
+  expect(output).toContain('╭─ code · txt ─');
+  expect(output).toContain('│ hello');
+  expect(output).not.toContain('**Summary**');
+  expect(output).not.toContain('`dogs`');
+  expect(output).not.toContain('```');
 });
 
 it('interactive REPL accumulates and sends multi-turn conversation history', async () => {
