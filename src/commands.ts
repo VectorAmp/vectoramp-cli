@@ -9,6 +9,7 @@ import { embeddingDimensions, openai } from './embeddings.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
 import { SOURCE_TYPES } from './sources.js';
 import { commandHelp, extractDatasets, InteractiveTerminal, normalizeSlashCommand, renderBanner } from './interactive-ui.js';
+import { renderTerminalMarkdown, TerminalMarkdownStreamRenderer } from './markdown.js';
 
 export interface CliIO { stdout?: NodeJS.WriteStream; stderr?: NodeJS.WriteStream; fetch?: typeof fetch }
 
@@ -359,6 +360,7 @@ async function ask(
     const spinner = ora('Asking VectorAmp').start();
     let wroteChunk = false;
     let answer = '';
+    const markdownStream = new TerminalMarkdownStreamRenderer((value) => { process.stdout.write(value); });
     try {
       for await (const event of ctx.client.askStream(body)) {
         if (event.event === 'done' || event.data === '[DONE]') break;
@@ -366,10 +368,11 @@ async function ask(
         if (!chunk) continue;
         if (!wroteChunk) { spinner.stop(); wroteChunk = true; }
         answer += chunk;
-        process.stdout.write(chunk);
+        markdownStream.write(chunk);
       }
       if (!wroteChunk) spinner.stop();
-      process.stdout.write('\n'); return answer;
+      else markdownStream.end();
+      return answer;
     } catch (error) {
       if (wroteChunk) process.stdout.write('\n');
       else spinner.stop();
@@ -385,7 +388,7 @@ async function ask(
 
 function showAsk(ctx: { json: boolean }, value: unknown) {
   if (ctx.json) { printJson(value); return; }
-  if (value && typeof value === 'object' && typeof (value as any).answer === 'string') console.log((value as any).answer);
+  if (value && typeof value === 'object' && typeof (value as any).answer === 'string') console.log(renderTerminalMarkdown((value as any).answer));
   else show(ctx, value);
 }
 
