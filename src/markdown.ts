@@ -50,6 +50,7 @@ export function renderTerminalMarkdown(markdown: string): string {
  * shapes this CLI supports.
  */
 export class TerminalMarkdownStreamRenderer {
+  private static readonly PARTIAL_FLUSH_CHARS = 120;
   private readonly renderer = new TerminalMarkdownLineRenderer();
   private buffer = '';
 
@@ -65,6 +66,7 @@ export class TerminalMarkdownStreamRenderer {
       this.writeOutput(`${this.renderer.renderLine(line)}\n`);
       newlineIndex = this.buffer.indexOf('\n');
     }
+    this.flushLongPartialLine();
   }
 
   end(): void {
@@ -74,11 +76,23 @@ export class TerminalMarkdownStreamRenderer {
     }
     this.writeOutput('\n');
   }
+
+  private flushLongPartialLine(): void {
+    while (!this.renderer.isInsideFence() && this.buffer.length >= TerminalMarkdownStreamRenderer.PARTIAL_FLUSH_CHARS) {
+      const splitIndex = findPartialFlushIndex(this.buffer, TerminalMarkdownStreamRenderer.PARTIAL_FLUSH_CHARS);
+      if (splitIndex <= 0) return;
+      const partial = this.buffer.slice(0, splitIndex);
+      this.buffer = this.buffer.slice(splitIndex);
+      this.writeOutput(this.renderer.renderLine(partial));
+    }
+  }
 }
 
 class TerminalMarkdownLineRenderer {
   private inFence = false;
   private fenceLanguage = '';
+
+  isInsideFence(): boolean { return this.inFence; }
 
   renderLine(line: string): string {
     const fence = line.match(/^\s*```\s*([^`]*)\s*$/);
@@ -93,6 +107,15 @@ class TerminalMarkdownLineRenderer {
 
     return renderMarkdownLine(line);
   }
+}
+
+function findPartialFlushIndex(buffer: string, target: number): number {
+  const searchStart = Math.max(0, target - 40);
+  const searchEnd = Math.min(buffer.length, target + 40);
+  for (let index = searchEnd; index >= searchStart; index -= 1) {
+    if (/\s/.test(buffer[index] ?? '')) return index + 1;
+  }
+  return buffer.length >= target * 2 ? target : -1;
 }
 
 function renderMarkdownLine(line: string): string {

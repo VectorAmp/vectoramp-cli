@@ -36,4 +36,18 @@ describe('TerminalMarkdownStreamRenderer', () => {
     renderer.end();
     expect(stripAnsi(writes.join(''))).toBe(['╭─ code · ts ─', '│ const ok = true;', '╰────────', '', ''].join('\n'));
   });
+
+  it('flushes long partial prose before a newline so streaming remains live', () => {
+    const writes: string[] = [];
+    const renderer = new TerminalMarkdownStreamRenderer((value) => writes.push(value));
+    const longLine = 'This is a long streamed answer without newline chunks. '.repeat(5);
+
+    renderer.write(longLine);
+
+    expect(writes.length).toBeGreaterThan(0);
+    expect(stripAnsi(writes.join(''))).toContain('This is a long streamed answer');
+
+    renderer.end();
+    expect(stripAnsi(writes.join(''))).toBe(`${longLine}\n`);
+  });
 });
