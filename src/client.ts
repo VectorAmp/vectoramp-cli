@@ -19,6 +19,14 @@ export interface VectorRecord {
   [key: string]: unknown;
 }
 
+export interface DeleteVectorsOptions { writeConcern?: 'default' | 'one' | 'quorum' | 'all' | string }
+export interface OrgSecretPutRequest { name: string; value: string; provider?: string }
+export interface CreateDatasetWithOpenAISecretOptions {
+  apiKey?: string;
+  secretRef?: string;
+  dataset: Record<string, unknown>;
+}
+
 export interface SearchOptions {
   topK?: number;
   filters?: Record<string, unknown>;
@@ -124,6 +132,15 @@ export class VectorAmpClient {
     return this.request<unknown>('POST', '/datasets', { body: toSnakeCasePayload(payload) });
   }
 
+  async createDatasetWithOpenAISecret(options: CreateDatasetWithOpenAISecretOptions) {
+    const secretRef = options.secretRef ?? 'emb:openai:api_key';
+    if (options.apiKey) await this.putOrgSecret({ name: secretRef, value: options.apiKey, provider: 'openai' });
+    const dataset = { ...options.dataset };
+    const embedding = { ...((dataset.embedding as Record<string, unknown> | undefined) ?? {}), provider: 'openai', secretRef };
+    dataset.embedding = embedding;
+    return this.createDataset(dataset);
+  }
+
   deleteDataset(id: string) { return this.request<void>('DELETE', `/datasets/${encodeURIComponent(id)}`); }
   stats(id: string) { return this.request<unknown>('GET', `/datasets/${encodeURIComponent(id)}/stats`); }
 
@@ -162,6 +179,11 @@ export class VectorAmpClient {
   /** Alias of insert(); both names are part of the locked surface. */
   insertVectors(id: string, vectors: VectorRecord | VectorRecord[]) { return this.insert(id, vectors); }
 
+  deleteVectors(id: string, ids: Array<string | number>, options: DeleteVectorsOptions = {}) {
+    const body = toSnakeCasePayload({ ids, writeConcern: options.writeConcern });
+    return this.request<unknown>('DELETE', `/datasets/${encodeURIComponent(id)}/vectors`, { body });
+  }
+
   /** Embed texts then insert them. Auto-generates ids when omitted and copies the
    * source text into metadata.text. Accepts a single string or a list. */
   async addTexts(id: string, texts: string | unknown[], metadata?: Record<string, unknown> | Record<string, unknown>[], ids?: (string | number)[]) {
@@ -177,6 +199,14 @@ export class VectorAmpClient {
       metadata: { ...(sharedMeta ?? {}), ...(metaList?.[index] ?? {}), text },
     }));
     return this.insert(id, vectors);
+  }
+
+  // ---- Organization secrets -----------------------------------------------
+
+  putOrgSecret(req: OrgSecretPutRequest) {
+    return this.request<unknown>('PUT', `/org-secrets/${encodeURIComponent(req.name)}`, {
+      body: { value: req.value },
+    });
   }
 
   // ---- Ingestion sources & jobs -------------------------------------------

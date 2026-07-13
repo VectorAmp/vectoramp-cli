@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import cliProgress from 'cli-progress';
 import { Command } from 'commander';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
 import { collectFiles, VectorAmpClient, type IngestFile, type VectorRecord, type SearchOptions } from './client.js';
 import { embeddingDimensions, openai } from './embeddings.js';
@@ -43,6 +43,9 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--dim <n>', 'Vector dimension. Inferred for built-in embeddings.', parseInt)
     .option('--metric <metric>', 'Distance metric (default cosine)')
     .option('--openai <small|large>', 'Use OpenAI text-embedding-3-small or text-embedding-3-large')
+    .option('--openai-api-key <key>', 'Save this OpenAI API key as an org secret before creating the dataset')
+    .option('--openai-api-key-env <name>', 'Read an OpenAI API key from an environment variable and save it before creating the dataset')
+    .option('--embedding-secret-ref <ref>', 'Stored embedding secret reference (default emb:openai:api_key for OpenAI)')
     .option('--embedding-provider <provider>', 'Embedding provider override')
     .option('--embedding-model <model>', 'Embedding model override')
     .option('--hybrid', 'Enable hybrid (dense + sparse) search')
@@ -60,13 +63,24 @@ export function buildProgram(io: CliIO = {}): Command {
         hybrid: opts.hybrid ? true : undefined,
         metadata: parseJsonOption(opts.metadata, undefined),
       });
-      await spin(ctx, 'Creating SABLE dataset', async () => show(ctx, await ctx.client.createDataset(body)));
+      const apiKey = resolveSecretValue({ value: opts.openaiApiKey, env: opts.openaiApiKeyEnv });
+      const secretRef = opts.embeddingSecretRef ?? (embedding.provider === 'openai' ? 'emb:openai:api_key' : undefined);
+      if (secretRef) (body.embedding as Record<string, unknown>).secretRef = secretRef;
+      await spin(ctx, 'Creating SABLE dataset', async () => show(ctx, apiKey
+        ? await ctx.client.createDatasetWithOpenAISecret({ apiKey, secretRef, dataset: body })
+        : await ctx.client.createDataset(body)));
     });
   datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
   datasets.command('stats <id>').description('Vector count and index status').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching stats', async () => show(ctx, await ctx.client.stats(id))); });
   datasets.command('delete <id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
     const ctx = await context(program.opts(), io); await spin(ctx, 'Deleting dataset', async () => { await ctx.client.deleteDataset(id); print(ctx, { deleted: id }, chalk.green(`Deleted ${id}`)); });
+  });
+  datasets.command('delete-vectors <dataset-id> <ids...>').description('Delete vector ids from a dataset').option('-y, --yes', 'Skip confirmation').option('--write-concern <value>', 'default, one, quorum, or all').action(async (datasetId, ids, opts) => {
+    if (!opts.yes) throw new Error('Refusing to delete vectors without --yes');
+    const ctx = await context(program.opts(), io);
+    const parsedIds = ids.map(parseVectorId);
+    await spin(ctx, `Deleting ${parsedIds.length} vector(s)`, async () => show(ctx, await ctx.client.deleteVectors(datasetId, parsedIds, { writeConcern: opts.writeConcern })));
   });
   datasets.command('search [query...]')
     .description('Semantic or hybrid search. Use --vector for a raw vector query, --filter for metadata filters, --sparse for hybrid.')
@@ -131,6 +145,14 @@ export function buildProgram(io: CliIO = {}): Command {
       if (opts.output) { await writeFile(opts.output, bytes); print(ctx, { output: opts.output, bytes: bytes.length }, chalk.green(`Wrote ${opts.output}`)); }
       else process.stdout.write(bytes);
     });
+  });
+
+  const secrets = program.command('secrets').description('Manage organization provider secrets');
+  secrets.command('put <name>').description('Create or update an organization provider secret').option('--value <value>', 'Secret plaintext value').option('--file <path>', 'Read secret plaintext from a file').option('--env <name>', 'Read secret plaintext from an environment variable').action(async (name, opts) => {
+    const value = await resolveSecretValueAsync(opts);
+    if (!value) throw new Error('Provide --value, --file, or --env');
+    const ctx = await context(program.opts(), io);
+    await spin(ctx, 'Saving organization secret', async () => show(ctx, await ctx.client.putOrgSecret({ name, value })));
   });
 
   // Raw vector operations.
@@ -277,6 +299,23 @@ function resolveEmbeddingOptions(opts: { openai?: string; embeddingProvider?: st
     provider: opts.embeddingProvider ?? 'vectoramp',
     model: opts.embeddingModel ?? 'VectorAmp-Embedding-4B',
   };
+}
+
+function resolveSecretValue(opts: { value?: string; env?: string }): string | undefined {
+  if (opts.value) return opts.value;
+  if (opts.env) {
+    const value = process.env[opts.env];
+    if (!value) throw new Error(`Environment variable ${opts.env} is not set`);
+    return value;
+  }
+  return undefined;
+}
+
+async function resolveSecretValueAsync(opts: { value?: string; file?: string; env?: string }): Promise<string | undefined> {
+  const direct = resolveSecretValue(opts);
+  if (direct !== undefined) return direct;
+  if (opts.file) return (await readFile(opts.file, 'utf8')).trim();
+  return undefined;
 }
 
 /** Collect repeatable `--filter k=v` options into a record. */

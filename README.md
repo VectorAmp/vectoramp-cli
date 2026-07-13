@@ -82,12 +82,14 @@ vectoramp datasets create docs
 # Optional BYOM examples when you intentionally want a non-default embedding model.
 # OpenAI dimensions are inferred (small = 1536, large = 3072).
 vectoramp datasets create openai-docs --openai small --metadata '{"team":"support"}'
+vectoramp datasets create openai-docs --openai small --openai-api-key-env OPENAI_API_KEY
 vectoramp datasets create custom-docs --embedding-provider cohere --embedding-model embed-v3 --dim 1024
 vectoramp datasets create docs --hybrid           # enable dense + sparse hybrid search
 vectoramp datasets create docs --dim 768 --metric dot
 
 vectoramp datasets get ds_123
 vectoramp datasets stats ds_123
+vectoramp datasets delete-vectors ds_123 doc-001 42 --write-concern quorum --yes
 vectoramp datasets delete ds_123 --yes
 ```
 
@@ -112,6 +114,19 @@ vectoramp --dataset ds_123 datasets search "refund policy" --sparse refund --alp
 vectoramp --dataset ds_123 datasets search anything --vector '[0.1,0.2,0.3]'
 ```
 
+## Organization secrets
+
+Store provider credentials as organization secrets. The CLI sends the plaintext once; VectorAmp stores it server-side and future dataset operations reference the secret name.
+
+```bash
+# Default OpenAI BYOM secret reference used by SDKs and docs
+vectoramp secrets put emb:openai:api_key --env OPENAI_API_KEY
+vectoramp secrets put emb:openai:api_key --file ./openai-key.txt
+
+# Or save the secret while creating an OpenAI-backed dataset
+vectoramp datasets create docs --openai small --openai-api-key-env OPENAI_API_KEY
+```
+
 ## Vectors
 
 ```bash
@@ -120,6 +135,9 @@ vectoramp --dataset ds_123 vectors insert --id 42 --values '[0.1,0.2,0.3]' --met
 
 # Insert a batch
 vectoramp --dataset ds_123 vectors insert --vectors '[{"id":1,"values":[0.1,0.2]},{"id":"doc-2","values":[0.3,0.4]}]'
+
+# Delete selected vector ids from search
+vectoramp datasets delete-vectors ds_123 1 doc-2 --yes
 ```
 
 ## Documents
