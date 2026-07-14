@@ -30,6 +30,27 @@ describe('VectorAmpClient', () => {
     expect(JSON.parse(calls[1].body as string)).toMatchObject({ name: 'docs', dim: 2560, hybrid: true, index_type: 'sable' });
   });
 
+  it('deletes vectors preserving numeric ids as JSON numbers', async () => {
+    const calls: any[] = [];
+    const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ deleted: 2 }); }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await client.deleteVectors('ds', [42, 'doc-7'], { writeConcern: 'quorum' });
+    expect(calls[0].url).toBe('https://api.example.com/datasets/ds/vectors');
+    expect(calls[0].init.method).toBe('DELETE');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ ids: [42, 'doc-7'], write_concern: 'quorum' });
+  });
+
+  it('saves an OpenAI org secret before creating a dataset when requested', async () => {
+    const calls: any[] = [];
+    const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ id: 'ds_1' }); }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await client.createDatasetWithOpenAISecret({ apiKey: 'sk-test', secretRef: 'emb:openai:api_key', dataset: { name: 'docs', dim: 1536, embedding: { model: 'text-embedding-3-small' } } });
+    expect(calls[0].url).toBe('https://api.example.com/org-secrets/emb%3Aopenai%3Aapi_key');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ value: 'sk-test' });
+    expect(calls[1].url).toBe('https://api.example.com/datasets');
+    expect(JSON.parse(calls[1].init.body as string)).toMatchObject({ name: 'docs', dim: 1536, embedding: { provider: 'openai', model: 'text-embedding-3-small', secret_ref: 'emb:openai:api_key' }, index_type: 'sable' });
+  });
+
   it('inserts raw vectors preserving numeric ids as JSON numbers', async () => {
     const calls: any[] = [];
     const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ inserted: 2 }); }) as typeof globalThis.fetch;
