@@ -19,7 +19,7 @@ const DEFAULT_DIM = 2560;
 
 export function buildProgram(io: CliIO = {}): Command {
   const program = new Command();
-  program.name('vectoramp').alias('va').description('VectorAmp CLI for datasets, ingestion, search, and Intelligence').version('0.1.2')
+  program.name('vectoramp').alias('va').description('VectorAmp CLI for datasets, ingestion, search, and Intelligence').version('0.2.0')
     .option('--api-key <key>', 'API key (defaults to VECTORAMP_API_KEY or local config)')
     .option('--base-url <url>', 'API base URL (defaults to VECTORAMP_BASE_URL or https://api.vectoramp.com)')
     .option('--api-prefix <prefix>', 'API path prefix (defaults to none for the public REST API)')
