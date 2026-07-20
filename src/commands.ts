@@ -4,7 +4,7 @@ import cliProgress from 'cli-progress';
 import { Command } from 'commander';
 import { readFile, writeFile } from 'node:fs/promises';
 import { readConfig, resolveConfig, writeConfig } from './config.js';
-import { collectFiles, VectorAmpClient, type IngestFile, type VectorRecord, type SearchOptions } from './client.js';
+import { collectFiles, VectorAmpClient, type IngestFile, type VectorRecord, type SearchOptions, type MetadataSchema } from './client.js';
 import { embeddingDimensions, openai } from './embeddings.js';
 import { compact, parseJsonOption, printJson } from './utils.js';
 import { SOURCE_TYPES } from './sources.js';
@@ -50,6 +50,7 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--embedding-model <model>', 'Embedding model override')
     .option('--hybrid', 'Enable hybrid (dense + sparse) search')
     .option('--metadata <json>', 'Metadata JSON')
+    .option('--metadata-schema <json>', 'Typed metadata schema JSON array')
     .action(async (name, opts) => {
       const ctx = await context(program.opts(), io);
       const embedding = resolveEmbeddingOptions(opts);
@@ -62,6 +63,7 @@ export function buildProgram(io: CliIO = {}): Command {
         embedding,
         hybrid: opts.hybrid ? true : undefined,
         metadata: parseJsonOption(opts.metadata, undefined),
+        schema: parseJsonOption<MetadataSchema | undefined>(opts.metadataSchema, undefined),
       });
       const apiKey = resolveSecretValue({ value: opts.openaiApiKey, env: opts.openaiApiKeyEnv });
       const secretRef = opts.embeddingSecretRef ?? (embedding.provider === 'openai' ? 'emb:openai:api_key' : undefined);
@@ -71,6 +73,18 @@ export function buildProgram(io: CliIO = {}): Command {
         : await ctx.client.createDataset(body)));
     });
   datasets.command('get <id>').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching dataset', async () => show(ctx, await ctx.client.getDataset(id))); });
+  datasets.command('schema-patch <id> <schema>')
+    .description('Add or update typed metadata schema fields from a JSON array')
+    .action(async (id, schema) => {
+      const ctx = await context(program.opts(), io);
+      await spin(ctx, 'Patching metadata schema', async () => show(ctx, await ctx.client.patchMetadataSchema(id, parseJsonOption<MetadataSchema>(schema, []))));
+    });
+  datasets.command('schema-replace <id> <schema>')
+    .description('Replace the complete typed metadata schema from a JSON array')
+    .action(async (id, schema) => {
+      const ctx = await context(program.opts(), io);
+      await spin(ctx, 'Replacing metadata schema', async () => show(ctx, await ctx.client.replaceMetadataSchema(id, parseJsonOption<MetadataSchema>(schema, []))));
+    });
   datasets.command('stats <id>').description('Vector count and index status').action(async (id) => { const ctx = await context(program.opts(), io); await spin(ctx, 'Fetching stats', async () => show(ctx, await ctx.client.stats(id))); });
   datasets.command('delete <id>').option('-y, --yes', 'Skip confirmation').action(async (id, opts) => {
     if (!opts.yes) throw new Error('Refusing to delete without --yes');
