@@ -87,6 +87,13 @@ vectoramp datasets create custom-docs --embedding-provider cohere --embedding-mo
 vectoramp datasets create docs --hybrid           # enable dense + sparse hybrid search
 vectoramp datasets create docs --dim 768 --metric dot
 
+# Declare typed metadata at creation. Supported types: string, u32, i32, i64, f32, f64.
+vectoramp datasets create products --metadata-schema '[{"name":"price","type":"f32"},{"name":"category","type":"string"}]'
+
+# Merge fields into the schema, or replace it completely.
+vectoramp datasets schema-patch ds_123 '[{"name":"created_at","type":"i64"}]'
+vectoramp datasets schema-replace ds_123 '[{"name":"category","type":"string"}]'
+
 vectoramp datasets get ds_123
 vectoramp datasets stats ds_123
 vectoramp datasets delete-vectors ds_123 doc-001 42 --write-concern quorum --yes

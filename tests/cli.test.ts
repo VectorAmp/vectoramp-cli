@@ -79,6 +79,25 @@ it('creates a hybrid dataset with --hybrid', async () => {
   expect(JSON.parse(calls[0].body as string)).toMatchObject({ name: 'docs', dim: 768, metric: 'dot', hybrid: true, index_type: 'sable' });
 });
 
+it('creates a dataset with a typed metadata schema', async () => {
+  const calls: any[] = [];
+  const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return new Response(JSON.stringify({ id: 'ds_schema' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', 'create', 'products', '--metadata-schema', '[{"name":"price","type":"f32"}]']);
+  expect(JSON.parse(calls[0].body as string)).toMatchObject({ schema: [{ name: 'price', type: 'f32' }] });
+});
+
+it.each([
+  ['schema-patch', 'merge'],
+  ['schema-replace', 'replace'],
+])('updates a dataset schema with %s', async (command, mode) => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ id: 'ds_1' }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'datasets', command, 'ds_1', '[{"name":"price","type":"f32"}]']);
+  expect(calls[0].url).toBe('https://api.test/datasets/ds_1/schema');
+  expect(calls[0].init.method).toBe('PATCH');
+  expect(JSON.parse(calls[0].init.body as string)).toEqual({ schema: [{ name: 'price', type: 'f32' }], mode });
+});
+
 it('requires --dim for custom embedding models', async () => {
   const fetch = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof globalThis.fetch;
   await expect(

@@ -9,6 +9,11 @@ export interface DatasetDocumentListParams { limit?: number; cursor?: string; st
 export interface StreamEvent { event?: string; data?: unknown; id?: string; retry?: number }
 export interface IngestFile { path: string; content: string; metadata?: Record<string, unknown> }
 
+export const METADATA_FIELD_TYPES = ['string', 'u32', 'i32', 'i64', 'f32', 'f64'] as const;
+export type MetadataFieldType = typeof METADATA_FIELD_TYPES[number];
+export interface MetadataSchemaField { name: string; type: MetadataFieldType }
+export type MetadataSchema = MetadataSchemaField[];
+
 /** A raw vector record. `id` accepts a string OR a number and is preserved as-is
  * on the wire (numbers serialize as JSON numbers, not strings). */
 export interface VectorRecord {
@@ -139,6 +144,20 @@ export class VectorAmpClient {
     const embedding = { ...((dataset.embedding as Record<string, unknown> | undefined) ?? {}), provider: 'openai', secretRef };
     dataset.embedding = embedding;
     return this.createDataset(dataset);
+  }
+
+  /** Merge fields into the dataset's typed metadata schema. */
+  patchMetadataSchema(id: string, schema: MetadataSchema) {
+    return this.request<unknown>('PATCH', `/datasets/${encodeURIComponent(id)}/schema`, {
+      body: { schema, mode: 'merge' },
+    });
+  }
+
+  /** Replace the dataset's complete typed metadata schema. */
+  replaceMetadataSchema(id: string, schema: MetadataSchema) {
+    return this.request<unknown>('PATCH', `/datasets/${encodeURIComponent(id)}/schema`, {
+      body: { schema, mode: 'replace' },
+    });
   }
 
   deleteDataset(id: string) { return this.request<void>('DELETE', `/datasets/${encodeURIComponent(id)}`); }
