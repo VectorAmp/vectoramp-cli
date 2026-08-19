@@ -274,6 +274,126 @@ export function fileUploadSource(options: FileUploadSourceOptions = {}): SourceD
   };
 }
 
+export interface GitHubSourceOptions {
+  /** GitHub App installation id. Required — GitHub reads via the App, not a token. */
+  installationId: number;
+  /** Repository full names, e.g. ["VectorAmp/Docs"]. At least one is required. */
+  repositories: string[];
+  refMode?: 'default' | 'active' | 'explicit';
+  refs?: string[];
+  excludedRefs?: string[];
+  activeBranchDays?: number;
+  includePullRequests?: boolean;
+  includeReviewThreads?: boolean;
+  includeDirectCommits?: boolean;
+  includeGlobs?: string[];
+  excludeGlobs?: string[];
+  maxFileSizeBytes?: number;
+  syncMode?: 'full' | 'incremental';
+  name?: string;
+  description?: string;
+  config?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * GitHub repository source. Content is read through a read-only GitHub App
+ * installation, so this helper takes an `installationId` rather than a token —
+ * there is deliberately no accessToken/connectionId option.
+ */
+export function githubSource(options: GitHubSourceOptions): SourceDescriptor {
+  if (!options.installationId) throw new Error('githubSource requires an installationId.');
+  if (!options.repositories?.length) throw new Error('githubSource requires at least one repository.');
+  return {
+    sourceType: 'github',
+    name: options.name,
+    description: options.description,
+    config: clean({
+      installation_id: options.installationId,
+      repositories: options.repositories,
+      ref_mode: options.refMode,
+      refs: options.refs,
+      excluded_refs: options.excludedRefs,
+      active_branch_days: options.activeBranchDays,
+      include_pull_requests: options.includePullRequests,
+      include_review_threads: options.includeReviewThreads,
+      include_direct_commits: options.includeDirectCommits,
+      include_globs: options.includeGlobs,
+      exclude_globs: options.excludeGlobs,
+      max_file_size_bytes: options.maxFileSizeBytes,
+      sync_mode: options.syncMode,
+      ...options.config,
+    }),
+    metadata: options.metadata,
+  };
+}
+
+export interface GitLabSourceOptions {
+  /** Defaults to oauth server-side. Use 'token' with accessToken for a PAT. */
+  authMode?: 'oauth' | 'token';
+  /** Override for self-managed instances; defaults to https://gitlab.com. */
+  gitlabUrl?: string;
+  /** Saved OAuth connection id, resolved to fresh credentials at ingest time. */
+  connectionId?: string;
+  /** Personal or group access token, for authMode 'token'. */
+  accessToken?: string;
+  /** Group paths, e.g. ["platform"]. At least one group or project is required. */
+  groups?: string[];
+  /** Project paths, e.g. ["platform/ingestion"]. */
+  projects?: string[];
+  refMode?: 'default' | 'active' | 'explicit';
+  refs?: string[];
+  excludedRefs?: string[];
+  activeBranchDays?: number;
+  includeMergeRequests?: boolean;
+  includeReviewThreads?: boolean;
+  includeDirectCommits?: boolean;
+  includeGlobs?: string[];
+  excludeGlobs?: string[];
+  maxFileSizeBytes?: number;
+  syncMode?: 'full' | 'incremental';
+  name?: string;
+  description?: string;
+  config?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * GitLab project source, on gitlab.com or a self-managed instance. Scope is set
+ * by `groups` and/or `projects`; the service requires at least one of them.
+ */
+export function gitlabSource(options: GitLabSourceOptions = {}): SourceDescriptor {
+  if (!options.groups?.length && !options.projects?.length) {
+    throw new Error('gitlabSource requires at least one group or project.');
+  }
+  return {
+    sourceType: 'gitlab',
+    name: options.name,
+    description: options.description,
+    config: clean({
+      auth_mode: options.authMode,
+      gitlab_url: options.gitlabUrl,
+      connection_id: options.connectionId,
+      access_token: options.accessToken,
+      groups: options.groups,
+      projects: options.projects,
+      ref_mode: options.refMode,
+      refs: options.refs,
+      excluded_refs: options.excludedRefs,
+      active_branch_days: options.activeBranchDays,
+      include_merge_requests: options.includeMergeRequests,
+      include_review_threads: options.includeReviewThreads,
+      include_direct_commits: options.includeDirectCommits,
+      include_globs: options.includeGlobs,
+      exclude_globs: options.excludeGlobs,
+      max_file_size_bytes: options.maxFileSizeBytes,
+      sync_mode: options.syncMode,
+      ...options.config,
+    }),
+    metadata: options.metadata,
+  };
+}
+
 export interface GenericSourceOptions {
   sourceType: string;
   config?: Record<string, unknown>;
@@ -294,7 +414,7 @@ export function source(options: GenericSourceOptions): SourceDescriptor {
   };
 }
 
-export const SOURCE_TYPES = ['web', 's3', 'gcs', 'gdrive', 'jira', 'confluence', 'file_upload'] as const;
+export const SOURCE_TYPES = ['web', 's3', 'gcs', 'gdrive', 'jira', 'confluence', 'file_upload', 'github', 'gitlab'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
 /** Normalize a string or descriptor into the body createSource() expects. */

@@ -7,7 +7,7 @@ export { VectorAmpClient, VectorAmpApiError, collectFiles } from './client.js';
 export type { VectorRecord, SearchOptions, IngestFile, StreamEvent } from './client.js';
 export {
   webSource, s3Source, gcsSource, googleDriveSource, jiraSource, confluenceSource,
-  fileUploadSource, source, SOURCE_TYPES,
+  fileUploadSource, githubSource, gitlabSource, source, SOURCE_TYPES,
 } from './sources.js';
 export type { SourceDescriptor, SourceInput, SourceType } from './sources.js';
 export { openai, embeddingDimensions } from './embeddings.js';

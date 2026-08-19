@@ -372,6 +372,9 @@ function buildSourceConfig(type: string, uri: string | undefined, configJson: st
   if (type === 's3' || type === 'gcs') return { bucket: uri.replace(/^s3:\/\/|^gs:\/\//, '').split('/')[0], ...config };
   if (type === 'gdrive') return { folder_ids: [uri], ...config };
   if (type === 'confluence' || type === 'jira') return { base_url: uri, ...config };
+  // `vectoramp sources github owner/repo` / `... gitlab group/project`.
+  if (type === 'github') return { repositories: [uri], ...config };
+  if (type === 'gitlab') return { projects: [uri], ...config };
   return { uri, ...config };
 }
 
