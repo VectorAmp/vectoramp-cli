@@ -159,7 +159,7 @@ vectoramp documents download ds_123 doc_456 --output ./original.pdf
 
 ## Ingestion
 
-Create reusable sources (all source types, including Confluence):
+Create reusable sources (all source types, including Confluence, GitHub, and GitLab):
 
 ```bash
 vectoramp sources web https://docs.example.com --name docs-web --config '{"include_assets":true,"max_assets_per_page":5}'
@@ -169,6 +169,10 @@ vectoramp sources gdrive google-folder-id
 vectoramp sources jira --config '{"cloud_id":"...","projects":["ENG"],"include_comments":true}'
 vectoramp sources confluence https://acme.atlassian.net --config '{"spaces":["ENG"],"username":"u","api_token":"t"}'
 vectoramp sources file_upload --name "Local upload"
+# GitHub reads through a read-only GitHub App installation, so pass its installation id.
+vectoramp sources github VectorAmp/Docs --config '{"installation_id":12345678,"ref_mode":"active"}'
+# GitLab takes a saved OAuth connection, or auth_mode "token" with an access token.
+vectoramp sources gitlab platform/ingestion --config '{"auth_mode":"token","access_token":"glpat-..."}'
 
 vectoramp sources list
 vectoramp sources get src_123
@@ -179,6 +183,7 @@ Create a source and start a job in one step (`sources ingest` creates the source
 ```bash
 vectoramp --dataset ds_123 sources ingest web https://docs.example.com --config '{"include_assets":true}'
 vectoramp --dataset ds_123 sources ingest confluence https://acme.atlassian.net --config '{"spaces":["ENG"]}'
+vectoramp --dataset ds_123 sources ingest github VectorAmp/Docs --config '{"installation_id":12345678}'
 ```
 
 Local file ingestion hides the presigned upload flow — it auto-creates a `file_upload` source, initializes the upload, PUTs each file's bytes, completes the upload, then starts the ingestion job:
@@ -295,7 +300,7 @@ await client.ingestSource(dataset.id, confluenceSource({ cloudId: 'cid', spaces:
 | `ask(body)` / `askStream(body)` | `body.query` | `datasetId` ("all"), `topK` (5), `includeSources` (true), `conversationHistory` |
 | `createSession / listSessions / getSession / deleteSession / appendMessage / listMessages` | per signature | — |
 
-Source helpers (`@vectoramp/cli`): `webSource`, `s3Source`, `gcsSource`, `googleDriveSource`, `jiraSource`, `confluenceSource`, `fileUploadSource`, and the generic `source({ sourceType, config })` escape hatch.
+Source helpers (`@vectoramp/cli`): `webSource`, `s3Source`, `gcsSource`, `googleDriveSource`, `jiraSource`, `confluenceSource`, `fileUploadSource`, `githubSource`, `gitlabSource`, and the generic `source({ sourceType, config })` escape hatch.
 
 ## Development
 

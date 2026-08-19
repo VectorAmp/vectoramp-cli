@@ -178,6 +178,28 @@ it('creates a confluence source with cloud id config', async () => {
   });
 });
 
+it('creates a github source from a positional owner/repo', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ id: 'src_gh' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'sources', 'github', 'VectorAmp/Docs', '--config', '{"installation_id":12345678}', '--name', 'docs-repo']);
+  expect(calls[0].url).toBe('https://api.test/ingestion/sources');
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    source_type: 'github',
+    name: 'docs-repo',
+    config: { repositories: ['VectorAmp/Docs'], installation_id: 12345678 },
+  });
+});
+
+it('creates a gitlab source from a positional group/project', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ id: 'src_gl' }), { headers: { 'content-type': 'application/json' }, status: 201 }); }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'sources', 'gitlab', 'platform/ingestion', '--config', '{"auth_mode":"token","access_token":"glpat-x"}']);
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    source_type: 'gitlab',
+    config: { projects: ['platform/ingestion'], auth_mode: 'token', access_token: 'glpat-x' },
+  });
+});
+
 it('starts ingestion from a source via the real create-source + jobs flow', async () => {
   const calls: any[] = [];
   const fetch = (async (url: string, init: RequestInit) => {
