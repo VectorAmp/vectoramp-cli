@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.4.0] - 2026-08-20
+
+### Added
+
+- Add `github` and `gitlab` source type commands.
+- Add `githubSource` and `gitlabSource` source helpers to the programmatic API.
+
 ## [0.3.0] - 2026-07-20
 
 ### Added
