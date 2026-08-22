@@ -216,10 +216,14 @@ vectoramp schedules delete sch_1 --yes
 ## Ask (RAG)
 
 ```bash
-# Defaults: top_k 5, include_sources true, dataset "all" when unscoped
+# Defaults: top_k 5, include_sources true, and every dataset you can see when unscoped
 vectoramp ask "What changed in the latest release?"
 vectoramp ask "Summarize my dataset" --dataset ds_123 --stream
 vectoramp ask "List open risks" --dataset ds_123 --top-k 12
+
+# Scope one question to several datasets: repeat --datasets, or comma-separate
+vectoramp ask "Which contracts renew in Q4?" --datasets ds_contracts --datasets ds_invoices
+vectoramp ask "Which contracts renew in Q4?" --datasets ds_contracts,ds_invoices
 ```
 
 ## Interactive mode
@@ -297,7 +301,7 @@ await client.ingestSource(dataset.id, confluenceSource({ cloudId: 'cid', spaces:
 | `startJob(body)` / `listJobs(params?)` / `getJob(id)` / `retryJob(id)` | per signature | — |
 | `waitForJob(id, options?)` | `id` | `intervalMs`, `timeoutMs`, `onPoll` |
 | `listSchedules / getSchedule / createSchedule / updateSchedule / deleteSchedule / triggerSchedule` | per signature | — |
-| `ask(body)` / `askStream(body)` | `body.query` | `datasetId` ("all"), `topK` (5), `includeSources` (true), `conversationHistory` |
+| `ask(body)` / `askStream(body)` | `body.query` | `datasetIds` (omit for every visible dataset), `topK` (5), `includeSources` (true), `conversationHistory` |
 | `createSession / listSessions / getSession / deleteSession / appendMessage / listMessages` | per signature | — |
 
 Source helpers (`@vectoramp/cli`): `webSource`, `s3Source`, `gcsSource`, `googleDriveSource`, `jiraSource`, `confluenceSource`, `fileUploadSource`, `githubSource`, `gitlabSource`, and the generic `source({ sourceType, config })` escape hatch.

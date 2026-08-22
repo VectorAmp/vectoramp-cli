@@ -310,8 +310,8 @@ export class VectorAmpClient {
 
   // ---- Intelligence --------------------------------------------------------
 
-  /** RAG query. Defaults: top_k 5, include_sources true, dataset "all" when unscoped. */
-  ask(body: Record<string, unknown>) { return this.request<unknown>('POST', '/intelligence/query', { body: toSnakeCasePayload(applyAskDefaults(body, false)) }); }
+  /** RAG query. Defaults: top_k 5, include_sources true, and every visible dataset when unscoped. */
+  async ask(body: Record<string, unknown>) { return this.request<unknown>('POST', '/intelligence/query', { body: toSnakeCasePayload(applyAskDefaults(body, false)) }); }
   askStream(body: Record<string, unknown>) { return this.stream('/intelligence/query', toSnakeCasePayload(applyAskDefaults(body, true))); }
 
   createSession(body: Record<string, unknown> = {}) { return this.request<unknown>('POST', '/intelligence/sessions', { body: toSnakeCasePayload(body) }); }
@@ -365,13 +365,36 @@ function normalizeAdvancedFilters(filters: unknown): unknown[] {
   return Array.isArray(filters) ? filters : [];
 }
 
+/**
+ * Fill in the ask defaults and normalize the dataset scope.
+ *
+ * `POST /intelligence/query` scopes with `dataset_ids` (an array) and reads an absent field as
+ * "every dataset the caller can see" — which is what the old `dataset_id: 'all'` default meant.
+ * The singular field is retired and now draws a 400, so it is rejected here, naming the
+ * replacement, instead of being sent and bounced.
+ */
 function applyAskDefaults(body: Record<string, unknown>, stream: boolean): Record<string, unknown> {
+  if (body.datasetId !== undefined || body.dataset_id !== undefined) {
+    throw new Error('datasetId/dataset_id is retired. Use datasetIds: [id], or omit it to search every dataset you can see.');
+  }
+
   const out: Record<string, unknown> = { ...body };
   if (out.includeSources === undefined && out.include_sources === undefined) out.includeSources = true;
   if (out.topK === undefined && out.top_k === undefined) out.topK = 5;
-  if (out.datasetId === undefined && out.dataset_id === undefined) out.datasetId = 'all';
+
+  const scope = normalizeDatasetIds(out.datasetIds ?? out.dataset_ids);
+  delete out.dataset_ids;
+  if (scope.length) out.datasetIds = scope;
+  else delete out.datasetIds;
+
   out.stream = stream;
   return out;
+}
+
+/** Drop empties and the retired `'all'` sentinel; an omitted scope already says "all". */
+function normalizeDatasetIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((id) => String(id).trim()).filter((id) => id && id !== 'all');
 }
 
 function contentType(path: string): string {

@@ -306,7 +306,7 @@ it('runs one-off ask with public intelligence payload', async () => {
   }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', 'Do I have any pictures of dogs?']);
   expect(calls[0].url).toBe('https://api.test/intelligence/query');
-  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'Do I have any pictures of dogs?', dataset_id: 'ds_123', include_sources: true, stream: false });
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'Do I have any pictures of dogs?', dataset_ids: ['ds_123'], include_sources: true, stream: false });
   expect(stripAnsi(logs.join('\n'))).toContain('Dogs found\n\n• photo-1');
 });
 
@@ -318,6 +318,39 @@ it('one-off ask forwards --top-k', async () => {
   }) as typeof globalThis.fetch;
   await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_123', 'ask', '--top-k', '12', 'hello?']);
   expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ query: 'hello?', top_k: 12 });
+});
+
+it('one-off ask scopes to several datasets from repeated and comma-separated --datasets', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ answer: 'ok' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test',
+    'ask', '--datasets', 'ds_1', '--datasets', 'ds_2,ds_3', 'across which?'
+  ]);
+
+  expect(JSON.parse(calls[0].init.body as string)).toMatchObject({
+    query: 'across which?',
+    dataset_ids: ['ds_1', 'ds_2', 'ds_3']
+  });
+});
+
+it('one-off ask with no dataset omits the scope so every dataset is searched', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ answer: 'ok' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'ask', 'anything?']);
+
+  const body = JSON.parse(calls[0].init.body as string);
+  expect(body).not.toHaveProperty('dataset_ids');
+  // The retired dataset_id: 'all' default would now be answered with a 400.
+  expect(body).not.toHaveProperty('dataset_id');
 });
 
 it('renders one-off ask markdown for terminals', async () => {
@@ -402,7 +435,7 @@ it('interactive REPL accumulates and sends multi-turn conversation history', asy
   const asks = bodies.filter((b) => String(b.url).endsWith('/intelligence/query'));
   expect(asks).toHaveLength(2);
   // First turn carries no prior history.
-  expect(asks[0].body).toMatchObject({ query: 'first question', dataset_id: 'ds_1', stream: true });
+  expect(asks[0].body).toMatchObject({ query: 'first question', dataset_ids: ['ds_1'], stream: true });
   expect(asks[0].body.conversation_history).toBeUndefined();
   // Second turn includes the first user message and the streamed assistant answer.
   expect(asks[1].body).toMatchObject({ query: 'second question', stream: true });
@@ -431,6 +464,6 @@ it('interactive /use switches the active dataset and resets history before askin
   const asks = bodies.filter((b) => String(b.url).endsWith('/intelligence/query'));
   expect(asks).toHaveLength(1);
   // The question after /use must target the switched dataset, with no leftover history.
-  expect(asks[0].body).toMatchObject({ query: 'after switch?', dataset_id: 'ds_target' });
+  expect(asks[0].body).toMatchObject({ query: 'after switch?', dataset_ids: ['ds_target'] });
   expect(asks[0].body.conversation_history).toBeUndefined();
 });

@@ -144,18 +144,41 @@ describe('VectorAmpClient', () => {
     const calls: any[] = [];
     const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ answer: 'ok' }); }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
-    await client.ask({ query: 'dogs', datasetId: 'ds_1' });
+    await client.ask({ query: 'dogs', datasetIds: ['ds_1'] });
     expect(calls[0].url).toBe('https://api.example.com/intelligence/query');
     // Defaults: include_sources true, top_k 5, stream false.
-    expect(JSON.parse(calls[0].init.body as string)).toEqual({ query: 'dogs', dataset_id: 'ds_1', include_sources: true, top_k: 5, stream: false });
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ query: 'dogs', dataset_ids: ['ds_1'], include_sources: true, top_k: 5, stream: false });
   });
 
-  it('defaults the RAG dataset to "all" when unscoped', async () => {
+  it('sends every requested dataset id in the RAG scope', async () => {
+    const calls: any[] = [];
+    const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return json({ answer: 'ok' }); }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await client.ask({ query: 'dogs', datasetIds: ['ds_1', 'ds_2', 'ds_3'] });
+    expect(JSON.parse(calls[0].body as string)).toMatchObject({ query: 'dogs', dataset_ids: ['ds_1', 'ds_2', 'ds_3'] });
+  });
+
+  it('omits the RAG scope entirely when unscoped', async () => {
+    // The API reads an absent dataset_ids as "every dataset you can see"; the old
+    // dataset_id: 'all' default is retired and now draws a 400.
     const calls: any[] = [];
     const fetch = (async (_url: string, init: RequestInit) => { calls.push(init); return json({ answer: 'ok' }); }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
     await client.ask({ query: 'dogs' });
-    expect(JSON.parse(calls[0].body as string)).toMatchObject({ query: 'dogs', dataset_id: 'all' });
+    await client.ask({ query: 'dogs', datasetIds: [] });
+    await client.ask({ query: 'dogs', datasetIds: ['all'] });
+    for (const call of calls) {
+      const body = JSON.parse(call.body as string);
+      expect(body).not.toHaveProperty('dataset_ids');
+      expect(body).not.toHaveProperty('dataset_id');
+    }
+  });
+
+  it('refuses the retired datasetId field instead of letting the API 400', async () => {
+    const fetch = (async () => json({ answer: 'unreachable' })) as unknown as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
+    await expect(client.ask({ query: 'dogs', datasetId: 'ds_1' })).rejects.toThrow(/retired/);
+    await expect(client.ask({ query: 'dogs', dataset_id: 'all' })).rejects.toThrow(/datasetIds/);
   });
 
   it('embeds then inserts when adding texts, copying source text into metadata.text', async () => {
