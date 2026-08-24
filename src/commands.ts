@@ -29,9 +29,12 @@ export function buildProgram(io: CliIO = {}): Command {
 
   program.action(async () => interactive(io, program.opts<GlobalOpts>()));
 
-  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--dataset <id>', 'Dataset id (defaults to "all")').action(async (question, opts) => {
-    const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io);
-    await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
+  // `--datasets` rather than a second `--dataset`: the global `-d, --dataset` is declared first and
+  // wins the flag, so a same-named subcommand option would silently never fire.
+  program.command('ask <question...>').description('Ask VectorAmp Intelligence').option('--stream', 'Stream output using SSE when available').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--datasets <ids>', 'Datasets to scope the question to. Repeat or comma-separate for several; omit to search every dataset you can see.', collectDatasetIds).action(async (question, opts) => {
+    const datasetIds: string[] = opts.datasets ?? [];
+    const ctx = await context({ ...program.opts(), dataset: datasetIds[0] ?? program.opts().dataset }, io);
+    await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK, datasetIds });
   });
 
   const datasets = program.command('datasets').alias('dataset').description('Manage datasets');
@@ -395,7 +398,12 @@ function print(ctx: { json: boolean }, jsonValue: unknown, human: string) { if (
 
 export interface ConversationTurn { role: 'user' | 'assistant' | 'system'; content: string }
 
-interface AskOptions { conversationHistory?: ConversationTurn[]; topK?: number }
+interface AskOptions { conversationHistory?: ConversationTurn[]; topK?: number; datasetIds?: string[] }
+
+/** Commander collector so `--dataset a --dataset b` and `--dataset a,b` both build a scope. */
+function collectDatasetIds(value: string, previous: string[] = []): string[] {
+  return previous.concat(value.split(',').map((id) => id.trim()).filter(Boolean));
+}
 
 // Returns the assistant's answer text so callers (e.g. the interactive REPL) can
 // accumulate multi-turn conversation history. `conversationHistory` is sent
@@ -406,9 +414,12 @@ async function ask(
   stream: boolean,
   opts: AskOptions = {}
 ): Promise<string> {
+  // An explicit --dataset scope wins; otherwise the active dataset scopes the
+  // question to itself, and no active dataset means every dataset in reach.
+  const datasetIds = opts.datasetIds?.length ? opts.datasetIds : ctx.datasetId ? [ctx.datasetId] : [];
   const body = compact({
     query: question,
-    datasetId: ctx.datasetId,
+    datasetIds: datasetIds.length ? datasetIds : undefined,
     topK: opts.topK,
     conversationHistory: opts.conversationHistory?.length ? opts.conversationHistory : undefined,
   });
