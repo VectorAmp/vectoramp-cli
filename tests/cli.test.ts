@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,12 +108,46 @@ it('requires --dim for custom embedding models', async () => {
 it('inserts raw vectors with a numeric id preserved as a number', async () => {
   const calls: any[] = [];
   const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response(JSON.stringify({ inserted: 1 }), { headers: { 'content-type': 'application/json' } }); }) as typeof globalThis.fetch;
-  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'vectors', 'insert', '--id', '42', '--values', '[0.1,0.2]', '--metadata', '{"k":"v"}']);
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1', 'vectors', 'insert', '--id', '42', '--values', '[0.1,0.2]', '--metadata', '{"k":"v"}', '--security-scope-key', 'tenant-acme']);
   expect(calls[0].url).toBe('https://api.test/datasets/ds_1/insert');
   const raw = calls[0].init.body as string;
   expect(raw).toContain('"id":42');
   expect(raw).not.toContain('"id":"42"');
-  expect(JSON.parse(raw)).toEqual({ vectors: [{ id: 42, values: [0.1, 0.2], metadata: { k: 'v' } }] });
+  expect(JSON.parse(raw)).toEqual({ vectors: [{ id: 42, values: [0.1, 0.2], metadata: { k: 'v' }, security_scope_key: 'tenant-acme' }] });
+});
+
+it('adds texts with an optional dataset security scope key', async () => {
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    if (url.endsWith('/embed')) return new Response(JSON.stringify({ embeddings: [[0.1, 0.2]] }), { headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify({ inserted: 1 }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1',
+    'datasets', 'add-texts', 'private handbook', '--security-scope-key', 'tenant-acme',
+  ]);
+  expect(JSON.parse(calls[1].init.body as string)).toMatchObject({
+    vectors: [{ security_scope_key: 'tenant-acme' }],
+  });
+});
+
+it('initializes file ingestion with an optional dataset security scope key', async () => {
+  const input = join(configDir, 'handbook.md');
+  await writeFile(input, '# handbook');
+  const calls: any[] = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    if (url.endsWith('/ingestion/sources')) return new Response(JSON.stringify({ id: 'src_up' }), { status: 201, headers: { 'content-type': 'application/json' } });
+    if (url.endsWith('/upload/init')) return new Response(JSON.stringify({ job_id: 'job_up', uploads: [{ file_id: 'f1', upload_url: 'https://s3.test/f1' }] }), { headers: { 'content-type': 'application/json' } });
+    if (url === 'https://s3.test/f1') return new Response(null, { status: 200 });
+    return new Response(JSON.stringify({ status: 'pending' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync([
+    'node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds_1',
+    'datasets', 'ingest-files', input, '--security-scope-key', 'tenant-acme',
+  ]);
+  expect(JSON.parse(calls[1].init.body as string)).toMatchObject({ security_scope_key: 'tenant-acme' });
 });
 
 it('searches with --filter, --sparse hybrid, and --rerank', async () => {
@@ -266,6 +300,7 @@ it('manages schedules via list/create/update/delete/trigger commands', async () 
     '--dataset-id', 'ds_1',
     '--cron', '0 0 * * *',
     '--timezone', 'UTC',
+    '--security-scope-key', 'tenant-acme',
   ]);
   expect(calls[1].method).toBe('POST');
   expect(calls[1].url).toBe('https://api.test/ingestion/schedules');
@@ -274,14 +309,15 @@ it('manages schedules via list/create/update/delete/trigger commands', async () 
     dataset_id: 'ds_1',
     cron: '0 0 * * *',
     timezone: 'UTC',
+    security_scope: { external_key: 'tenant-acme' },
   });
 
   await buildProgram({ fetch }).parseAsync([
     'node', 'vectoramp', '--base-url', 'https://api.test',
-    'schedules', 'update', 'sch_2', '--disable'
+    'schedules', 'update', 'sch_2', '--disable', '--security-scope-key', 'tenant-beta'
   ]);
   expect(calls[2].method).toBe('PATCH');
-  expect(JSON.parse(calls[2].body as string)).toEqual({ enabled: false });
+  expect(JSON.parse(calls[2].body as string)).toEqual({ enabled: false, security_scope: { external_key: 'tenant-beta' } });
 
   await buildProgram({ fetch }).parseAsync([
     'node', 'vectoramp', '--base-url', 'https://api.test',

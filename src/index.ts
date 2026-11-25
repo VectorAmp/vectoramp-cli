@@ -4,7 +4,7 @@ import { buildProgram } from './commands.js';
 
 export { buildProgram } from './commands.js';
 export { VectorAmpClient, VectorAmpApiError, collectFiles } from './client.js';
-export type { VectorRecord, SearchOptions, IngestFile, StreamEvent } from './client.js';
+export type { VectorRecord, SearchOptions, IngestFile, StreamEvent, AddTextsOptions, IngestFilesOptions } from './client.js';
 export {
   webSource, s3Source, gcsSource, googleDriveSource, jiraSource, confluenceSource,
   fileUploadSource, githubSource, gitlabSource, source, SOURCE_TYPES,

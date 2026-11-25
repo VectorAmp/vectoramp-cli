@@ -128,15 +128,15 @@ export function buildProgram(io: CliIO = {}): Command {
       }) as SearchOptions;
       await spin(ctx, 'Searching', async () => show(ctx, await ctx.client.search(ctx.datasetId!, queryInput, options)));
     });
-  datasets.command('add-texts <texts...>').option('--file <path>', 'Read one text payload from file').option('--metadata <json>', 'Metadata JSON').option('--dataset <id>', 'Dataset id').action(async (texts, opts) => {
+  datasets.command('add-texts <texts...>').option('--file <path>', 'Read one text payload from file').option('--metadata <json>', 'Metadata JSON').option('--dataset <id>', 'Dataset id').option('--security-scope-key <key>', 'Dataset-local security scope key').action(async (texts, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
     if (opts.file) texts.push(await (await import('node:fs/promises')).readFile(opts.file, 'utf8'));
-    await spin(ctx, 'Adding texts', async () => show(ctx, await ctx.client.addTexts(ctx.datasetId!, texts, parseJsonOption(opts.metadata, undefined))));
+    await spin(ctx, 'Adding texts', async () => show(ctx, await ctx.client.addTexts(ctx.datasetId!, texts, parseJsonOption(opts.metadata, undefined), undefined, { securityScopeKey: opts.securityScopeKey })));
   });
   datasets.command('ask <question...>').option('--stream', 'Stream output').option('-k, --top-k <n>', 'Number of context chunks to retrieve', parseInt).option('--dataset <id>', 'Dataset id').action(async (question, opts) => {
     const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx); await ask(ctx, question.join(' '), opts.stream, { topK: opts.topK });
   });
-  datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').action(async (root, opts) => ingestFilesCommand(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
+  datasets.command('ingest-files <path>').option('--dataset <id>', 'Dataset id').option('--extensions <list>', 'Comma-separated extensions').option('--max-bytes-per-file <n>', 'Max bytes per file', parseInt).option('--source-id <id>', 'Existing file_upload source id').option('--source-name <name>', 'Name for auto-created file_upload source').option('--security-scope-key <key>', 'Dataset-local security scope key').action(async (root, opts) => ingestFilesCommand(await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io), root, opts));
 
   // Dataset documents: `documents list <dataset>` / `documents download <dataset> <docId>`.
   const documents = program.command('documents').alias('docs').description('List and download retained dataset source documents');
@@ -181,12 +181,14 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--values <json>', 'Vector values as a JSON array')
     .option('--metadata <json>', 'Metadata JSON')
     .option('--vectors <json>', 'Insert a JSON array of {id,values,metadata} records')
+    .option('--security-scope-key <key>', 'Dataset-local security scope key applied to every record')
     .action(async (opts) => {
       const ctx = await context({ ...program.opts(), dataset: opts.dataset ?? program.opts().dataset }, io); await requireDataset(ctx);
-      const records: VectorRecord[] = opts.vectors
+      let records: VectorRecord[] = opts.vectors
         ? parseJsonOption<VectorRecord[]>(opts.vectors, [])
         : [compact({ id: parseVectorId(opts.id), values: opts.values ? parseJsonOption<number[]>(opts.values, []) : undefined, metadata: parseJsonOption(opts.metadata, undefined) }) as VectorRecord];
       if (!records.length || (!opts.vectors && opts.values === undefined)) throw new Error('Provide --values <json> or --vectors <json>.');
+      if (opts.securityScopeKey) records = records.map((record) => ({ ...record, securityScopeKey: opts.securityScopeKey }));
       await spin(ctx, `Inserting ${records.length} vector(s)`, async () => show(ctx, await ctx.client.insert(ctx.datasetId!, records)));
     });
 
@@ -244,6 +246,7 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--no-enabled', 'Create the schedule disabled')
     .option('--name <name>', 'Human-readable name')
     .option('--metadata <json>', 'Metadata JSON blob')
+    .option('--security-scope-key <key>', 'Dataset-local security scope key')
     .action(async (opts) => {
       const ctx = await context(program.opts(), io);
       const body = compact({
@@ -255,6 +258,7 @@ export function buildProgram(io: CliIO = {}): Command {
         enabled: opts.enabled === false ? false : undefined,
         name: opts.name,
         metadata: parseJsonOption(opts.metadata, undefined),
+        securityScope: opts.securityScopeKey ? { externalKey: opts.securityScopeKey } : undefined,
       });
       await spin(ctx, 'Creating schedule', async () => show(ctx, await ctx.client.createSchedule(body)));
     });
@@ -266,6 +270,7 @@ export function buildProgram(io: CliIO = {}): Command {
     .option('--disable', 'Disable the schedule')
     .option('--name <name>', 'New name')
     .option('--metadata <json>', 'New metadata JSON blob')
+    .option('--security-scope-key <key>', 'New dataset-local security scope key')
     .action(async (id, opts) => {
       if (opts.enable && opts.disable) throw new Error('--enable and --disable are mutually exclusive');
       const enabled = opts.enable ? true : opts.disable ? false : undefined;
@@ -276,6 +281,7 @@ export function buildProgram(io: CliIO = {}): Command {
         enabled,
         name: opts.name,
         metadata: parseJsonOption(opts.metadata, undefined),
+        securityScope: opts.securityScopeKey ? { externalKey: opts.securityScopeKey } : undefined,
       });
       if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
       const ctx = await context(program.opts(), io);
@@ -476,7 +482,7 @@ async function ingestFilesCommand(ctx: Awaited<ReturnType<typeof context>>, root
   const files: IngestFile[] = await collectFiles(root, { extensions: opts.extensions?.split(','), maxBytesPerFile: opts.maxBytesPerFile, onFile: (_file, count) => { progress?.setTotal(Math.max(count, 1)); progress?.update(count); } });
   progress?.stop();
   if (!files.length) throw new Error('No ingestible text files found.');
-  await spin(ctx, `Uploading ${files.length} file(s)`, async () => show(ctx, await ctx.client.ingestFiles(ctx.datasetId!, files, compact({ sourceId: opts.sourceId, sourceName: opts.sourceName }))));
+  await spin(ctx, `Uploading ${files.length} file(s)`, async () => show(ctx, await ctx.client.ingestFiles(ctx.datasetId!, files, compact({ sourceId: opts.sourceId, sourceName: opts.sourceName, securityScopeKey: opts.securityScopeKey }))));
 }
 
 export async function interactive(io: CliIO = {}, initial: GlobalOpts = {}) {
