@@ -503,3 +503,17 @@ it('interactive /use switches the active dataset and resets history before askin
   expect(asks[0].body).toMatchObject({ query: 'after switch?', dataset_ids: ['ds_target'] });
   expect(asks[0].body.conversation_history).toBeUndefined();
 });
+
+it('forwards explicit empty vector and schedule scope flags for server validation', async () => {
+  const calls: any[] = [];
+  const fetch = (async (_url: string, init: RequestInit) => {
+    calls.push(init);
+    return new Response(JSON.stringify({ id: 'result' }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof globalThis.fetch;
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', '--dataset', 'ds', 'vectors', 'insert', '--values', '[0.1]', '--security-scope-key', '']);
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'schedules', 'update', 'sch', '--security-scope-key', '']);
+  await buildProgram({ fetch }).parseAsync(['node', 'vectoramp', '--base-url', 'https://api.test', 'schedules', 'create', '--source-id', 'src', '--dataset-id', 'ds', '--cron', '0 * * * *', '--security-scope-key', '']);
+  expect(JSON.parse(calls[0].body as string).vectors[0].security_scope_key).toBe('');
+  expect(JSON.parse(calls[1].body as string)).toEqual({ security_scope: { external_key: '' } });
+  expect(JSON.parse(calls[2].body as string)).toMatchObject({ security_scope: { external_key: '' } });
+});

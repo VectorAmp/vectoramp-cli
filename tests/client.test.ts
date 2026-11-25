@@ -5,6 +5,26 @@ import { confluenceSource } from '../src/sources.js';
 function json(body: unknown, init: ResponseInit = {}) { return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init }); }
 
 describe('VectorAmpClient', () => {
+  it.each([undefined, ''])('does not default an explicit empty scope in text and upload helpers (%s)', async (securityScopeKey) => {
+    const calls: any[] = [];
+    const fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith('/embed')) return json({ embeddings: [[0.1]] });
+      if (url.endsWith('/upload/init')) return json({ job_id: 'up', uploads: [{ file_id: 'f', upload_url: 'https://uploads.test/f' }] });
+      if (url.endsWith('/upload/complete')) return json({ job_id: 'up', status: 'pending' });
+      return json({ inserted: 1 });
+    }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.test', apiPrefix: '' }, fetch);
+    await client.addTexts('ds', ['private'], undefined, undefined, { securityScopeKey });
+    await client.ingestFiles('ds', [{ path: 'a.txt', content: 'private' }], { sourceId: 'src', securityScopeKey });
+    const vector = JSON.parse(calls[1].init.body as string).vectors[0];
+    const upload = JSON.parse(calls.find((call) => call.url.endsWith('/upload/init')).init.body as string);
+    for (const body of [vector, upload]) {
+      if (securityScopeKey === undefined) expect(body).not.toHaveProperty('security_scope_key');
+      else expect(body).toHaveProperty('security_scope_key', '');
+    }
+  });
+
   it('sends auth, prefix, and SABLE dataset creation with dim (not dimension)', async () => {
     const calls: any[] = [];
     const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ id: 'ds_1' }); }) as typeof globalThis.fetch;

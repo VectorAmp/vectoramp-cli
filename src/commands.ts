@@ -188,7 +188,7 @@ export function buildProgram(io: CliIO = {}): Command {
         ? parseJsonOption<VectorRecord[]>(opts.vectors, [])
         : [compact({ id: parseVectorId(opts.id), values: opts.values ? parseJsonOption<number[]>(opts.values, []) : undefined, metadata: parseJsonOption(opts.metadata, undefined) }) as VectorRecord];
       if (!records.length || (!opts.vectors && opts.values === undefined)) throw new Error('Provide --values <json> or --vectors <json>.');
-      if (opts.securityScopeKey) records = records.map((record) => ({ ...record, securityScopeKey: opts.securityScopeKey }));
+      if (opts.securityScopeKey !== undefined) records = records.map((record) => ({ ...record, securityScopeKey: opts.securityScopeKey }));
       await spin(ctx, `Inserting ${records.length} vector(s)`, async () => show(ctx, await ctx.client.insert(ctx.datasetId!, records)));
     });
 
@@ -258,7 +258,7 @@ export function buildProgram(io: CliIO = {}): Command {
         enabled: opts.enabled === false ? false : undefined,
         name: opts.name,
         metadata: parseJsonOption(opts.metadata, undefined),
-        securityScope: opts.securityScopeKey ? { externalKey: opts.securityScopeKey } : undefined,
+        securityScope: opts.securityScopeKey !== undefined ? { externalKey: opts.securityScopeKey } : undefined,
       });
       await spin(ctx, 'Creating schedule', async () => show(ctx, await ctx.client.createSchedule(body)));
     });
@@ -281,7 +281,7 @@ export function buildProgram(io: CliIO = {}): Command {
         enabled,
         name: opts.name,
         metadata: parseJsonOption(opts.metadata, undefined),
-        securityScope: opts.securityScopeKey ? { externalKey: opts.securityScopeKey } : undefined,
+        securityScope: opts.securityScopeKey !== undefined ? { externalKey: opts.securityScopeKey } : undefined,
       });
       if (Object.keys(body).length === 0) throw new Error('Provide at least one field to update.');
       const ctx = await context(program.opts(), io);

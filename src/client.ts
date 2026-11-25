@@ -221,7 +221,7 @@ export class VectorAmpClient {
       id: ids?.[index] ?? `text-${index + 1}`,
       values: embeddings[index],
       metadata: { ...(sharedMeta ?? {}), ...(metaList?.[index] ?? {}), text },
-      ...(options.securityScopeKey ? { securityScopeKey: options.securityScopeKey } : {}),
+      ...(options.securityScopeKey !== undefined ? { securityScopeKey: options.securityScopeKey } : {}),
     }));
     return this.insert(id, vectors);
   }
@@ -291,7 +291,7 @@ export class VectorAmpClient {
       'POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/init`,
       { body: {
         files: files.map((file) => ({ name: file.path, size_bytes: Buffer.byteLength(file.content), content_type: contentType(file.path) })),
-        ...(options.securityScopeKey ? { security_scope_key: options.securityScopeKey } : {}),
+        ...(options.securityScopeKey !== undefined ? { security_scope_key: options.securityScopeKey } : {}),
       } },
     );
     const uploads = init.uploads ?? [];
