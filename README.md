@@ -279,6 +279,34 @@ await client.search(dataset.id, 'how does SABLE work?', { topK: 5, rerank: true 
 await client.ingestSource(dataset.id, confluenceSource({ cloudId: 'cid', spaces: ['ENG'] }));
 ```
 
+## Dataset permissions
+
+Assign writes to an active dataset-local scope by external key. The key is optional. When omitted,
+the API uses the dataset default.
+
+```bash
+vectoramp vectors insert --dataset ds_1 --values '[0.1,0.2]' --security-scope-key tenant-acme
+vectoramp datasets add-texts "private handbook" --dataset ds_1 --security-scope-key tenant-acme
+vectoramp datasets ingest-files ./handbook --dataset ds_1 --security-scope-key tenant-acme
+vectoramp schedules create --source-id src_1 --dataset-id ds_1 --cron '0 0 * * *' \
+  --security-scope-key tenant-acme
+```
+
+Programmatic writes accept the same optional scope:
+
+```ts
+await client.insert(dataset.id, [{ id: 'v1', values: [0.1, 0.2], securityScopeKey: 'tenant-acme' }]);
+await client.addTexts(dataset.id, ['private handbook'], undefined, undefined, { securityScopeKey: 'tenant-acme' });
+await client.ingestFiles(dataset.id, files, { securityScopeKey: 'tenant-acme' });
+await client.createSchedule({
+  sourceId: 'src_1', datasetId: dataset.id, cron: '0 0 * * *',
+  securityScope: { externalKey: 'tenant-acme' },
+});
+```
+
+Search needs no scope flag. The API automatically filters results using the caller's effective
+permissions. Scope configuration is not added to ingestion connector configuration.
+
 ## Method reference (client)
 
 | Method | Required args | Optional |
@@ -290,14 +318,14 @@ await client.ingestSource(dataset.id, confluenceSource({ cloudId: 'cid', spaces:
 | `stats(id)` | `id` | — |
 | `search(id, query, options?)` | `id`, `query` (string \| float[] \| object) | `topK` (10), `filters`, `hybrid`, `sparseQuery`, `alpha`, `rerank` (`true` expands to the full object), `includeDocuments`, `includeMetadata` |
 | `embed(id, input, options?)` | `id`, `input` (string \| string[]) | model/provider overrides |
-| `insert(id, vectors)` / `insertVectors(id, vectors)` | `id`, `vectors` (record \| record[]) | `id` accepts string **or** integer; integers stay JSON numbers |
-| `addTexts(id, texts, metadata?, ids?)` | `id`, `texts` (string \| string[]) | `metadata` (shared or per-text), `ids` (auto-generated when omitted); copies text into `metadata.text` |
+| `insert(id, vectors)` / `insertVectors(id, vectors)` | `id`, `vectors` (record \| record[]) | `id` accepts string **or** integer; `securityScopeKey` is optional per vector |
+| `addTexts(id, texts, metadata?, ids?, options?)` | `id`, `texts` (string \| string[]) | `metadata` (shared or per-text), `ids` (auto-generated when omitted), `options.securityScopeKey`; copies text into `metadata.text` |
 | `listDocuments(id, params?)` | `id` | `limit`, `cursor`, `status` |
 | `downloadDocument(id, documentId)` | `id`, `documentId` | returns `ArrayBuffer` |
 | `createSource(input)` | `input` (descriptor or URL string) | — |
 | `listSources(params?)` / `getSource(id)` | — / `id` | `limit`, `offset` |
 | `ingestSource(id, src, options?)` | `id`, `src` | `pipelineId` — creates the source then `POST /ingestion/jobs` |
-| `ingestFiles(id, files, options?)` | `id`, `files` (IngestFile[]) | `sourceId`, `sourceName`, `pipelineId` — runs the presigned upload flow |
+| `ingestFiles(id, files, options?)` | `id`, `files` (IngestFile[]) | `sourceId`, `sourceName`, `pipelineId`, `securityScopeKey`; runs the presigned upload flow |
 | `startJob(body)` / `listJobs(params?)` / `getJob(id)` / `retryJob(id)` | per signature | — |
 | `waitForJob(id, options?)` | `id` | `intervalMs`, `timeoutMs`, `onPoll` |
 | `listSchedules / getSchedule / createSchedule / updateSchedule / deleteSchedule / triggerSchedule` | per signature | — |

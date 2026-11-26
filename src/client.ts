@@ -21,8 +21,13 @@ export interface VectorRecord {
   values?: number[];
   vector?: number[];
   metadata?: Record<string, unknown>;
+  /** Dataset-local external security scope key. Omit to use the dataset default. */
+  securityScopeKey?: string;
   [key: string]: unknown;
 }
+
+export interface AddTextsOptions { securityScopeKey?: string }
+export interface IngestFilesOptions { sourceId?: string; sourceName?: string; pipelineId?: string; securityScopeKey?: string }
 
 export interface DeleteVectorsOptions { writeConcern?: 'default' | 'one' | 'quorum' | 'all' | string }
 export interface OrgSecretPutRequest { name: string; value: string; provider?: string }
@@ -205,7 +210,7 @@ export class VectorAmpClient {
 
   /** Embed texts then insert them. Auto-generates ids when omitted and copies the
    * source text into metadata.text. Accepts a single string or a list. */
-  async addTexts(id: string, texts: string | unknown[], metadata?: Record<string, unknown> | Record<string, unknown>[], ids?: (string | number)[]) {
+  async addTexts(id: string, texts: string | unknown[], metadata?: Record<string, unknown> | Record<string, unknown>[], ids?: (string | number)[], options: AddTextsOptions = {}) {
     const textList = (Array.isArray(texts) ? texts : [texts]).map((text) => String(text));
     const embedded = await this.embed(id, textList);
     const embeddings = embedded.embeddings ?? (embedded.embedding ? [embedded.embedding] : []);
@@ -216,6 +221,7 @@ export class VectorAmpClient {
       id: ids?.[index] ?? `text-${index + 1}`,
       values: embeddings[index],
       metadata: { ...(sharedMeta ?? {}), ...(metaList?.[index] ?? {}), text },
+      ...(options.securityScopeKey !== undefined ? { securityScopeKey: options.securityScopeKey } : {}),
     }));
     return this.insert(id, vectors);
   }
@@ -269,7 +275,7 @@ export class VectorAmpClient {
   /** Hide the full presigned upload flow: create a `file_upload` source, init the
    * upload, PUT each file's bytes, complete the upload, then start the ingestion
    * job. Accepts already-read IngestFile records. */
-  async ingestFiles(id: string, files: IngestFile[], options: { sourceId?: string; sourceName?: string; pipelineId?: string } = {}) {
+  async ingestFiles(id: string, files: IngestFile[], options: IngestFilesOptions = {}) {
     if (!files.length) throw new Error('No files to ingest.');
     let sourceId = options.sourceId;
     if (!sourceId) {
@@ -283,7 +289,10 @@ export class VectorAmpClient {
     }
     const init = await this.request<{ job_id?: string; uploads?: Array<{ file_id: string; upload_url: string }> }>(
       'POST', `/ingestion/sources/${encodeURIComponent(sourceId)}/upload/init`,
-      { body: { files: files.map((file) => ({ name: file.path, size_bytes: Buffer.byteLength(file.content), content_type: contentType(file.path) })) } },
+      { body: {
+        files: files.map((file) => ({ name: file.path, size_bytes: Buffer.byteLength(file.content), content_type: contentType(file.path) })),
+        ...(options.securityScopeKey !== undefined ? { security_scope_key: options.securityScopeKey } : {}),
+      } },
     );
     const uploads = init.uploads ?? [];
     if (uploads.length !== files.length) throw new Error(`Upload init returned ${uploads.length} slots for ${files.length} files.`);
@@ -345,12 +354,13 @@ export function buildSearchBody(query: string | number[] | Record<string, unknow
 
 /** Normalize a vector record: keep numeric ids numeric, map vector→values. */
 function normalizeVector(record: VectorRecord): Record<string, unknown> {
-  const { id, values, vector, metadata, ...rest } = record;
+  const { id, values, vector, metadata, securityScopeKey, ...rest } = record;
   const out: Record<string, unknown> = { ...rest };
   if (id !== undefined) out.id = id; // string OR number preserved as-is
   const resolvedValues = values ?? vector;
   if (resolvedValues !== undefined) out.values = resolvedValues;
   if (metadata !== undefined) out.metadata = metadata;
+  if (securityScopeKey !== undefined) out.security_scope_key = securityScopeKey;
   return out;
 }
 

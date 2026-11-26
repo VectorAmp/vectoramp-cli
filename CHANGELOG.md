@@ -6,6 +6,11 @@ This project follows semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add optional dataset security-scope keys to raw vector inserts, text inserts, file-upload
+  ingestion jobs, and ingestion schedule create/update commands and client requests.
+
 ### Changed
 
 - **Breaking:** Intelligence asks now scope with `dataset_ids` (a list). `POST /intelligence/query`

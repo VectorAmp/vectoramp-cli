@@ -5,6 +5,26 @@ import { confluenceSource } from '../src/sources.js';
 function json(body: unknown, init: ResponseInit = {}) { return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init }); }
 
 describe('VectorAmpClient', () => {
+  it.each([undefined, ''])('does not default an explicit empty scope in text and upload helpers (%s)', async (securityScopeKey) => {
+    const calls: any[] = [];
+    const fetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      if (url.endsWith('/embed')) return json({ embeddings: [[0.1]] });
+      if (url.endsWith('/upload/init')) return json({ job_id: 'up', uploads: [{ file_id: 'f', upload_url: 'https://uploads.test/f' }] });
+      if (url.endsWith('/upload/complete')) return json({ job_id: 'up', status: 'pending' });
+      return json({ inserted: 1 });
+    }) as typeof globalThis.fetch;
+    const client = new VectorAmpClient({ baseUrl: 'https://api.test', apiPrefix: '' }, fetch);
+    await client.addTexts('ds', ['private'], undefined, undefined, { securityScopeKey });
+    await client.ingestFiles('ds', [{ path: 'a.txt', content: 'private' }], { sourceId: 'src', securityScopeKey });
+    const vector = JSON.parse(calls[1].init.body as string).vectors[0];
+    const upload = JSON.parse(calls.find((call) => call.url.endsWith('/upload/init')).init.body as string);
+    for (const body of [vector, upload]) {
+      if (securityScopeKey === undefined) expect(body).not.toHaveProperty('security_scope_key');
+      else expect(body).toHaveProperty('security_scope_key', '');
+    }
+  });
+
   it('sends auth, prefix, and SABLE dataset creation with dim (not dimension)', async () => {
     const calls: any[] = [];
     const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ id: 'ds_1' }); }) as typeof globalThis.fetch;
@@ -56,7 +76,7 @@ describe('VectorAmpClient', () => {
     const fetch = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return json({ inserted: 2 }); }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
     await client.insert('ds', [
-      { id: 42, values: [0.1, 0.2], metadata: { k: 'v' } },
+      { id: 42, values: [0.1, 0.2], metadata: { k: 'v' }, securityScopeKey: 'tenant-acme' },
       { id: 'doc-7', vector: [0.3, 0.4] },
     ]);
     expect(calls[0].url).toBe('https://api.example.com/datasets/ds/insert');
@@ -65,7 +85,7 @@ describe('VectorAmpClient', () => {
     expect(raw).toContain('"id":42');
     expect(raw).not.toContain('"id":"42"');
     const body = JSON.parse(raw);
-    expect(body.vectors[0]).toEqual({ id: 42, values: [0.1, 0.2], metadata: { k: 'v' } });
+    expect(body.vectors[0]).toEqual({ id: 42, values: [0.1, 0.2], metadata: { k: 'v' }, security_scope_key: 'tenant-acme' });
     expect(body.vectors[1]).toEqual({ id: 'doc-7', values: [0.3, 0.4] });
     expect(typeof body.vectors[0].id).toBe('number');
   });
@@ -189,13 +209,13 @@ describe('VectorAmpClient', () => {
       return json({ inserted: 2 });
     }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
-    await client.addTexts('ds', ['first', 'second'], { source: 'docs' });
+    await client.addTexts('ds', ['first', 'second'], { source: 'docs' }, undefined, { securityScopeKey: 'tenant-acme' });
     expect(calls[0].url).toBe('https://api.example.com/datasets/ds/embed');
     expect(calls[1].url).toBe('https://api.example.com/datasets/ds/insert');
     const inserted = JSON.parse(calls[1].init.body as string);
     expect(inserted.vectors).toEqual([
-      { id: 'text-1', values: [0.1], metadata: { source: 'docs', text: 'first' } },
-      { id: 'text-2', values: [0.2], metadata: { source: 'docs', text: 'second' } },
+      { id: 'text-1', values: [0.1], metadata: { source: 'docs', text: 'first' }, security_scope_key: 'tenant-acme' },
+      { id: 'text-2', values: [0.2], metadata: { source: 'docs', text: 'second' }, security_scope_key: 'tenant-acme' },
     ]);
   });
 
@@ -227,7 +247,7 @@ describe('VectorAmpClient', () => {
       return json({ job_id: 'job_up', status: 'pending' });
     }) as typeof globalThis.fetch;
     const client = new VectorAmpClient({ baseUrl: 'https://api.example.com', apiPrefix: '' }, fetch);
-    const result = await client.ingestFiles('ds_1', [{ path: 'a.md', content: '# hello' }], { sourceName: 'docs-upload' });
+    const result = await client.ingestFiles('ds_1', [{ path: 'a.md', content: '# hello' }], { sourceName: 'docs-upload', securityScopeKey: 'tenant-acme' });
     // The upload flow already creates/runs the job; we return that job, not a new one.
     expect(result).toMatchObject({ job_id: 'up_1', source_id: 'src_up' });
     const urls = calls.map((c) => c.url);
@@ -235,6 +255,7 @@ describe('VectorAmpClient', () => {
     // file_upload source carries metadata.dataset_id so the upload handler finds it.
     expect(JSON.parse(calls[0].body as string)).toMatchObject({ metadata: { dataset_id: 'ds_1' } });
     expect(urls[1]).toBe('https://api.example.com/ingestion/sources/src_up/upload/init');
+    expect(JSON.parse(calls[1].body as string)).toMatchObject({ security_scope_key: 'tenant-acme' });
     expect(urls[2]).toBe('https://s3.example.com/put/f1');
     expect(calls[2].method).toBe('PUT');
     expect(urls[3]).toBe('https://api.example.com/ingestion/sources/src_up/upload/complete');
