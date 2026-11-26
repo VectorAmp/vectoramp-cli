@@ -6,6 +6,8 @@ This project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
 ### Added
 
 - Add optional dataset security-scope keys to raw vector inserts, text inserts, file-upload
